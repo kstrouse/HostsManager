@@ -1,0 +1,362 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+    xmlns:vm="using:HostsManager.ViewModels"
+    xmlns:ae="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="760"
+    x:Class="HostsManager.Views.MainWindow"
+        x:Name="RootWindow"
+        x:DataType="vm:MainWindowViewModel"
+        Icon="/Assets/hosts-manager.ico"
+        Title="Hosts Manager">
+
+    <Design.DataContext>
+        <vm:MainWindowViewModel/>
+    </Design.DataContext>
+
+    <Window.Styles>
+        <Style Selector="Window">
+            <Setter Property="Background" Value="#111315" />
+        </Style>
+        <Style Selector="Border.panel">
+            <Setter Property="Background" Value="#191C20" />
+            <Setter Property="BorderBrush" Value="#252A30" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="10" />
+        </Style>
+        <Style Selector="Button.action">
+            <Setter Property="Height" Value="32" />
+            <Setter Property="Padding" Value="12,0" />
+        </Style>
+        <Style Selector="Button">
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="TextBlock.label">
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+    </Window.Styles>
+
+    <Grid Margin="16" RowDefinitions="*,Auto" RowSpacing="12">
+        <Grid Grid.Row="0" ColumnSpacing="0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="340" MinWidth="340" />
+                <ColumnDefinition Width="8" />
+                <ColumnDefinition Width="*" />
+            </Grid.ColumnDefinitions>
+            <Border Classes="panel" Grid.Column="0" Padding="10">
+                <DockPanel LastChildFill="True">
+                    <StackPanel DockPanel.Dock="Top" Spacing="8" Margin="0,0,0,10">
+                        <Grid ColumnDefinitions="*,Auto">
+                            <TextBlock Grid.Column="0" Text="Sources" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
+                            <Button Grid.Column="1"
+                                    Width="28"
+                                    Height="28"
+                                    Padding="0"
+                                    HorizontalAlignment="Right"
+                                    VerticalAlignment="Center"
+                                    FontSize="18"
+                                    FontWeight="SemiBold"
+                                    Content="＋"
+                                    ToolTip.Tip="Add source"
+                                    Click="OpenAddSourceMenuClick">
+                                <Button.ContextMenu>
+                                    <ContextMenu>
+                                        <MenuItem Header="New Local Source" Click="NewLocalSourceClick" />
+                                        <MenuItem Header="Existing Local Source" Click="AddLocalSourceClick" />
+                                        <MenuItem Header="New Remote Source" Click="NewRemoteSourceClick" />
+                                    </ContextMenu>
+                                </Button.ContextMenu>
+                            </Button>
+                        </Grid>
+                    </StackPanel>
+
+                    <ListBox ItemsSource="{Binding Profiles}" SelectedItem="{Binding SelectedProfile}">
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8" Margin="2">
+                                    <StackPanel Grid.Column="0" Spacing="1" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Name}" />
+                                        <TextBlock Opacity="0.65" FontSize="11" Text="{Binding SourceTypeDisplay}" />
+                                    </StackPanel>
+                                    <ToggleSwitch Grid.Column="1" IsEnabled="{Binding CanToggleEnabled}" IsChecked="{Binding IsEnabled, Mode=TwoWay}" VerticalAlignment="Center" Checked="SourceEnabledChanged" Unchecked="SourceEnabledChanged" />
+                                    <Button Grid.Column="2"
+                                            Width="28"
+                                            Height="28"
+                                            Padding="0"
+                                            HorizontalAlignment="Center"
+                                            VerticalAlignment="Center"
+                                            ToolTip.Tip="Delete source"
+                                            Content="🗑"
+                                            Command="{Binding #RootWindow.DataContext.DeleteProfileCommand}"
+                                            CommandParameter="{Binding .}" />
+                                </Grid>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+                </DockPanel>
+            </Border>
+
+            <GridSplitter Grid.Column="1"
+                          ResizeDirection="Columns"
+                          Background="#252A30"
+                          HorizontalAlignment="Stretch"
+                          VerticalAlignment="Stretch"
+                          ShowsPreview="True" />
+
+            <Border Classes="panel" Grid.Column="2" Padding="12">
+                <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*" RowSpacing="8">
+                    <Border Grid.Row="0"
+                            IsVisible="{Binding HasPendingElevatedHostsUpdate}"
+                            Background="#3A2414"
+                            BorderBrush="#7A4A1F"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Padding="10,8">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                            <TextBlock Grid.Column="0"
+                                       Text="Pending hosts changes need administrator approval."
+                                       TextWrapping="Wrap"
+                                       VerticalAlignment="Center"
+                                       Foreground="#FFD8A8" />
+                            <Button Grid.Column="1"
+                                    Content="Apply Now"
+                                    Command="{Binding ApplyToSystemHostsCommand}" />
+                        </Grid>
+                    </Border>
+
+                    <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                        <TextBlock Text="Source Editor" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
+                        <Button Grid.Column="1" Name="SaveSelectedSourceButton" Content="Save" Click="SaveSelectedSourceClick" />
+                        <TextBlock Grid.Column="2"
+                                   Name="UnsavedIndicator"
+                                   Text="Unsaved"
+                                   IsVisible="False"
+                                   Foreground="#FFCC80"
+                                   Opacity="0.95"
+                                   VerticalAlignment="Center" />
+                    </Grid>
+
+                    <StackPanel Grid.Row="2" Spacing="8">
+                        <StackPanel Spacing="4">
+                            <TextBlock Classes="label" Text="Name" />
+                            <TextBox IsReadOnly="{Binding IsSelectedSourceReadOnly}" Text="{Binding SelectedProfile.Name, Mode=TwoWay}" Watermark="Source name" />
+                        </StackPanel>
+
+                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                            <TextBlock Classes="label" Text="Type" VerticalAlignment="Center" />
+                            <TextBlock Opacity="0.7" VerticalAlignment="Center" Text="{Binding SelectedSourceTypeDisplay}" />
+                        </StackPanel>
+
+                        <TextBlock IsVisible="{Binding IsSystemSelected}"
+                                   Opacity="0.72"
+                                   Text="{Binding HostsPath, StringFormat=System hosts file: {0}}" />
+
+                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" IsVisible="{Binding IsSystemSelected}">
+                            <CheckBox IsChecked="{Binding IsSystemHostsEditingEnabled, Mode=TwoWay}" VerticalAlignment="Center" />
+                            <TextBlock VerticalAlignment="Center" Text="Enable direct system hosts editing" />
+                        </StackPanel>
+                        <TextBlock IsVisible="{Binding IsSystemSelected}"
+                                   Opacity="0.68"
+                                   Text="Disabled by default for safety. Enable only when you need to edit non-managed records." />
+                    </StackPanel>
+
+                    <Border Grid.Row="3" Classes="panel" Padding="10" IsVisible="{Binding IsLocalSelected}">
+                        <StackPanel Spacing="8">
+                            <TextBlock Classes="label" Text="Local Source" />
+                            <Border IsVisible="{Binding IsSelectedLocalFileMissing}"
+                                    Background="#3A2414"
+                                    BorderBrush="#7A4A1F"
+                                    BorderThickness="1"
+                                    CornerRadius="6"
+                                    Padding="8,6">
+                                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                                    <TextBlock Grid.Column="0"
+                                               Text="Local source file was not found. This source has been disabled until the file is restored."
+                                               TextWrapping="Wrap"
+                                               VerticalAlignment="Center"
+                                               Foreground="#FFD8A8"
+                                               FontSize="11" />
+                                    <Button Grid.Column="1"
+                                            Content="Re-create File"
+                                            Command="{Binding RecreateMissingLocalFileCommand}" />
+                                </Grid>
+                            </Border>
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <TextBlock Classes="label" VerticalAlignment="Center" Text="File" />
+                                <TextBlock VerticalAlignment="Center" Opacity="0.78" Text="{Binding SelectedLocalFilePath}" />
+                            </StackPanel>
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                <Button Classes="action" Content="Rename File" Click="RenameLocalFileClick" />
+                                <Button Classes="action" Content="Open Folder" Command="{Binding OpenSelectedLocalFolderCommand}" />
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
+
+                    <Border Grid.Row="4" Classes="panel" Padding="10" IsVisible="{Binding IsRemoteSelected}">
+                        <StackPanel Spacing="8">
+                            <TextBlock Classes="label" Text="Remote Source" />
+
+                            <StackPanel Spacing="6" IsVisible="{Binding IsHttpRemoteSelected}">
+                                <TextBlock Opacity="0.72" Text="HTTP/HTTPS URL" />
+                                <TextBox Text="{Binding SelectedProfile.RemoteLocation, Mode=TwoWay}" Watermark="https://example.com/hosts" />
+                            </StackPanel>
+
+                            <Grid IsVisible="{Binding IsAzurePrivateDnsRemoteSelected}" ColumnDefinitions="2*,3*" ColumnSpacing="10">
+                                <StackPanel Grid.Column="0" Spacing="8">
+                                    <TextBlock Opacity="0.72" Text="Azure Private DNS settings" />
+                                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                        <Button Classes="action"
+                                                Content="Connect Azure"
+                                                IsEnabled="{Binding CanLoadAzureSubscriptions}"
+                                                Command="{Binding LoadAzureSubscriptionsCommand}" />
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal"
+                                                Spacing="8"
+                                                VerticalAlignment="Center"
+                                                IsVisible="{Binding IsAzureSubscriptionsLoading}">
+                                        <ProgressBar IsIndeterminate="True" Width="120" Height="6" />
+                                        <TextBlock VerticalAlignment="Center" Opacity="0.72" Text="Loading subscriptions..." />
+                                    </StackPanel>
+
+                                    <TextBlock Classes="label" Text="Subscription" />
+                                    <ComboBox ItemsSource="{Binding AzureSubscriptions}"
+                                              IsEnabled="{Binding CanLoadAzureSubscriptions}"
+                                              SelectedItem="{Binding SelectedAzureSubscription, Mode=TwoWay}">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding DisplayLabel}" />
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
+
+                                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                        <TextBlock Classes="label" VerticalAlignment="Center" Text="Interval (min)" />
+                                        <TextBox Width="70" Text="{Binding SelectedProfile.RefreshIntervalMinutes, Mode=TwoWay}" />
+                                        <TextBlock Classes="label" VerticalAlignment="Center" Text="Auto Sync" />
+                                        <CheckBox IsChecked="{Binding SelectedProfile.AutoRefreshFromRemote, Mode=TwoWay}" VerticalAlignment="Center" />
+                                    </StackPanel>
+
+                                    <Button Classes="action" Command="{Binding ReadSelectedRemoteHostsCommand}">
+                                        <Grid ColumnDefinitions="Auto,Auto" ColumnSpacing="8">
+                                            <ProgressBar Grid.Column="0"
+                                                         Width="18"
+                                                         Height="6"
+                                                         IsIndeterminate="True"
+                                                         IsVisible="{Binding IsSelectedRemoteSyncRunning}" />
+                                            <TextBlock Grid.Column="1"
+                                                       VerticalAlignment="Center"
+                                                       Text="Syncing ..."
+                                                       IsVisible="{Binding IsSelectedRemoteSyncRunning}" />
+                                            <TextBlock Grid.ColumnSpan="2"
+                                                       VerticalAlignment="Center"
+                                                       Text="Sync Now"
+                                                       IsVisible="{Binding IsSelectedRemoteSyncIdle}" />
+                                        </Grid>
+                                    </Button>
+                                    <TextBlock Opacity="0.72" Text="{Binding SelectedProfile.LastSyncedAtLocalDisplay, StringFormat=Last sync: {0}}" />
+                                </StackPanel>
+
+                                <StackPanel Grid.Column="1" Spacing="8">
+                                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                                        <TextBlock Classes="label" VerticalAlignment="Center" Text="Zones" />
+                                        <Button Classes="action"
+                                                Content="Refresh Zones"
+                                                IsEnabled="{Binding CanRefreshAzureZones}"
+                                                Command="{Binding RefreshAzureZonesCommand}" />
+                                    </StackPanel>
+
+                                    <StackPanel Orientation="Horizontal"
+                                                Spacing="8"
+                                                VerticalAlignment="Center"
+                                                IsVisible="{Binding IsAzureZonesLoading}">
+                                        <ProgressBar IsIndeterminate="True" Width="120" Height="6" />
+                                        <TextBlock VerticalAlignment="Center" Opacity="0.72" Text="Loading zones..." />
+                                    </StackPanel>
+
+                                    <Border BorderBrush="#2F3742" BorderThickness="1" CornerRadius="6" Padding="8" Background="#141A22" MinHeight="110">
+                                        <ScrollViewer MinHeight="120" MaxHeight="220" VerticalScrollBarVisibility="Auto">
+                                            <ItemsControl ItemsSource="{Binding AzureZones}">
+                                                <ItemsControl.ItemTemplate>
+                                                    <DataTemplate>
+                                                        <CheckBox IsChecked="{Binding IsEnabled, Mode=TwoWay}"
+                                                                  Content="{Binding DisplayLabel}" />
+                                                    </DataTemplate>
+                                                </ItemsControl.ItemTemplate>
+                                            </ItemsControl>
+                                        </ScrollViewer>
+                                    </Border>
+                                    <TextBlock Opacity="0.72" Text="Newly discovered zones are automatically enabled during sync." />
+                                </StackPanel>
+                            </Grid>
+
+                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" IsVisible="{Binding IsHttpRemoteSelected}">
+                                <TextBlock Classes="label" VerticalAlignment="Center" Text="Interval (min)" />
+                                <TextBox Width="70" Text="{Binding SelectedProfile.RefreshIntervalMinutes, Mode=TwoWay}" />
+                                <TextBlock Classes="label" VerticalAlignment="Center" Text="Auto Sync" />
+                                <CheckBox IsChecked="{Binding SelectedProfile.AutoRefreshFromRemote, Mode=TwoWay}" VerticalAlignment="Center" />
+                                <Button Classes="action" Command="{Binding ReadSelectedRemoteHostsCommand}">
+                                    <Grid ColumnDefinitions="Auto,Auto" ColumnSpacing="8">
+                                        <ProgressBar Grid.Column="0"
+                                                     Width="18"
+                                                     Height="6"
+                                                     IsIndeterminate="True"
+                                                     IsVisible="{Binding IsSelectedRemoteSyncRunning}" />
+                                        <TextBlock Grid.Column="1"
+                                                   VerticalAlignment="Center"
+                                                   Text="Syncing ..."
+                                                   IsVisible="{Binding IsSelectedRemoteSyncRunning}" />
+                                        <TextBlock Grid.ColumnSpan="2"
+                                                   VerticalAlignment="Center"
+                                                   Text="Sync Now"
+                                                   IsVisible="{Binding IsSelectedRemoteSyncIdle}" />
+                                    </Grid>
+                                </Button>
+                            </StackPanel>
+                            <TextBlock Opacity="0.72"
+                                       IsVisible="{Binding IsHttpRemoteSelected}"
+                                       Text="{Binding SelectedProfile.LastSyncedAtLocalDisplay, StringFormat=Last sync: {0}}" />
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock Grid.Row="5" Classes="label" Text="Hosts Entries" />
+
+                    <Border Grid.Row="6" BorderBrush="#2F3742" BorderThickness="1" CornerRadius="6" Background="#141A22" Padding="2">
+                        <ae:TextEditor Name="HostsEntriesEditor"
+                                       IsReadOnly="{Binding IsSelectedEntriesReadOnly}"
+                                       ShowLineNumbers="True"
+                                       FontFamily="Consolas"
+                                       Foreground="#E6EDF3"
+                                       Background="#141A22"
+                                       HorizontalScrollBarVisibility="Auto"
+                                       VerticalScrollBarVisibility="Auto"
+                                       MinHeight="360" />
+                    </Border>
+                </Grid>
+            </Border>
+        </Grid>
+
+        <Border Classes="panel" Grid.Row="1" Padding="10">
+            <Grid ColumnDefinitions="*,Auto,Auto,Auto,Auto" ColumnSpacing="10">
+                <TextBlock Opacity="0.82" VerticalAlignment="Center" Text="{Binding StatusMessage}" />
+                <Button Grid.Column="1" Content="Sync All Remote" Command="{Binding SyncAllFromUrlCommand}" />
+                <Button Grid.Column="2" Content="Manual Apply" Command="{Binding ApplyToSystemHostsCommand}" />
+                <StackPanel Grid.Column="3" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                    <TextBlock VerticalAlignment="Center" Text="Minimize to tray on close" />
+                    <CheckBox IsChecked="{Binding MinimizeToTrayOnClose, Mode=TwoWay}" VerticalAlignment="Center" />
+                </StackPanel>
+                <StackPanel Grid.Column="4"
+                            Orientation="Horizontal"
+                            Spacing="8"
+                            VerticalAlignment="Center"
+                            IsVisible="{Binding CanConfigureRunAtStartup}">
+                    <TextBlock VerticalAlignment="Center" Text="Run at Windows startup" />
+                    <CheckBox IsChecked="{Binding RunAtStartup, Mode=TwoWay}" VerticalAlignment="Center" />
+                </StackPanel>
+            </Grid>
+        </Border>
+    </Grid>
+
+</Window>
