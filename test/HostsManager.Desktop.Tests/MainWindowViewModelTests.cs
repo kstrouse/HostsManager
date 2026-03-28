@@ -225,6 +225,7 @@ public sealed class MainWindowViewModelTests
         return new MainWindowViewModel(
             profileStore ?? new ProfileStore(Path.Combine(tempRoot, "config")),
             hostsService,
+            new LocalSourceService(),
             new FakeStartupRegistrationService(),
             new FakeWindowsElevationService(),
             httpClient ?? new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)

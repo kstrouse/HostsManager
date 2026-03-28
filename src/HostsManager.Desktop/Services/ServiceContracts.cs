@@ -24,6 +24,17 @@ public interface IHostsFileService
     bool ManagedHostsMatch(IEnumerable<HostProfile> sources, string? currentHostsContent);
 }
 
+public interface ILocalSourceService
+{
+    Task<HostProfile> CreateNewSourceAsync(string path, CancellationToken cancellationToken = default);
+    Task<HostProfile> LoadExistingSourceAsync(string path, CancellationToken cancellationToken = default);
+    Task RenameAsync(HostProfile source, string requestedFileName, CancellationToken cancellationToken = default);
+    Task RecreateMissingFileAsync(HostProfile source, CancellationToken cancellationToken = default);
+    Task<bool> HasDiskContentChangedAsync(HostProfile source, CancellationToken cancellationToken = default);
+    Task<bool> ReloadFromDiskAsync(HostProfile source, CancellationToken cancellationToken = default);
+    bool UpdateMissingFileState(HostProfile source);
+}
+
 public interface IStartupRegistrationService
 {
     bool IsSupported { get; }

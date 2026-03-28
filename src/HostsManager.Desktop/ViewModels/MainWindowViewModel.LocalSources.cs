@@ -32,63 +32,21 @@ public partial class MainWindowViewModel
             return;
         }
 
-        if (string.IsNullOrWhiteSpace(SelectedProfile.LocalPath))
-        {
-            StatusMessage = "Local source path is empty.";
-            return;
-        }
-
         var requestedName = (requestedFileName ?? string.Empty).Trim();
-        if (string.IsNullOrWhiteSpace(requestedName))
-        {
-            StatusMessage = "Enter a file name first.";
-            return;
-        }
-
-        if (requestedName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0)
-        {
-            StatusMessage = "File name contains invalid characters.";
-            return;
-        }
-
-        var currentPath = SelectedProfile.LocalPath;
-        var directory = Path.GetDirectoryName(currentPath);
-        if (string.IsNullOrWhiteSpace(directory) || !Directory.Exists(directory))
-        {
-            StatusMessage = "Local source folder not found.";
-            return;
-        }
-
-        var currentExtension = Path.GetExtension(currentPath);
-        var targetFileName = requestedName;
-        if (string.IsNullOrWhiteSpace(Path.GetExtension(targetFileName)) && !string.IsNullOrWhiteSpace(currentExtension))
-        {
-            targetFileName += currentExtension;
-        }
-
-        var targetPath = Path.Combine(directory, targetFileName);
-        if (string.Equals(currentPath, targetPath, StringComparison.OrdinalIgnoreCase))
-        {
-            StatusMessage = "File name unchanged.";
-            return;
-        }
-
-        if (File.Exists(targetPath))
-        {
-            StatusMessage = "A file with that name already exists.";
-            return;
-        }
 
         try
         {
-            File.Move(currentPath, targetPath);
-            SelectedProfile.LocalPath = targetPath;
+            await localSourceService.RenameAsync(SelectedProfile, requestedName);
             localSourcesDirty = true;
             OnPropertyChanged(nameof(SelectedProfile));
             OnPropertyChanged(nameof(SelectedLocalFilePath));
             OnPropertyChanged(nameof(SelectedLocalFolderPath));
             await SaveProfilesAsync();
-            StatusMessage = $"Renamed local file to {Path.GetFileName(targetPath)}.";
+            StatusMessage = $"Renamed local file to {Path.GetFileName(SelectedProfile.LocalPath)}.";
+        }
+        catch (InvalidOperationException ex)
+        {
+            StatusMessage = ex.Message;
         }
         catch (Exception ex)
         {
@@ -136,22 +94,7 @@ public partial class MainWindowViewModel
 
         try
         {
-            var directory = Path.GetDirectoryName(profile.LocalPath);
-            if (string.IsNullOrWhiteSpace(directory))
-            {
-                StatusMessage = "Local source folder not found.";
-                return;
-            }
-
-            Directory.CreateDirectory(directory);
-
-            var content = profile.LastLoadedFromDiskEntries ?? profile.Entries ?? string.Empty;
-            await File.WriteAllTextAsync(profile.LocalPath, content);
-
-            profile.Entries = content;
-            profile.LastLoadedFromDiskEntries = content;
-            profile.IsMissingLocalFile = false;
-            profile.IsEnabled = true;
+            await localSourceService.RecreateMissingFileAsync(profile);
             localSourcesDirty = true;
 
             OnPropertyChanged(nameof(SelectedProfile));
@@ -165,6 +108,10 @@ public partial class MainWindowViewModel
             await SaveProfilesAsync();
             await RunBackgroundManagementTickAsync();
             StatusMessage = $"Re-created local source file: {Path.GetFileName(profile.LocalPath)}";
+        }
+        catch (InvalidOperationException ex)
+        {
+            StatusMessage = ex.Message;
         }
         catch (Exception ex)
         {
@@ -181,19 +128,7 @@ public partial class MainWindowViewModel
 
         try
         {
-            var initial = "# New local hosts source" + Environment.NewLine;
-            await File.WriteAllTextAsync(path, initial);
-
-            var source = new HostProfile
-            {
-                Name = Path.GetFileNameWithoutExtension(path),
-                IsEnabled = true,
-                SourceType = SourceType.Local,
-                LocalPath = path,
-                Entries = initial,
-                LastLoadedFromDiskEntries = initial
-            };
-
+            var source = await localSourceService.CreateNewSourceAsync(path);
             Profiles.Add(source);
             SelectedProfile = source;
             localSourcesDirty = true;
@@ -214,17 +149,7 @@ public partial class MainWindowViewModel
 
         try
         {
-            var text = await File.ReadAllTextAsync(path);
-            var source = new HostProfile
-            {
-                Name = Path.GetFileNameWithoutExtension(path),
-                IsEnabled = true,
-                SourceType = SourceType.Local,
-                LocalPath = path,
-                Entries = text,
-                LastLoadedFromDiskEntries = text
-            };
-
+            var source = await localSourceService.LoadExistingSourceAsync(path);
             Profiles.Add(source);
             SelectedProfile = source;
             localSourcesDirty = true;
@@ -249,7 +174,7 @@ public partial class MainWindowViewModel
             return false;
         }
 
-        var changed = await TryReloadSourceFromDiskAsync(SelectedProfile);
+        var changed = await localSourceService.ReloadFromDiskAsync(SelectedProfile);
         DismissSelectedSourceExternalChangeNotification();
 
         if (changed)
@@ -267,89 +192,20 @@ public partial class MainWindowViewModel
         SelectedSourceExternalChangeName = string.Empty;
     }
 
-    private static async Task<bool> TryHasDiskContentChangedAsync(HostProfile source)
-    {
-        if (string.IsNullOrWhiteSpace(source.LocalPath) || !File.Exists(source.LocalPath))
-        {
-            return false;
-        }
-
-        try
-        {
-            var text = await File.ReadAllTextAsync(source.LocalPath);
-            var baseline = source.LastLoadedFromDiskEntries;
-            if (baseline is null)
-            {
-                baseline = source.Entries;
-            }
-
-            return !string.Equals(text, baseline, StringComparison.Ordinal);
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
-    private static async Task<bool> TryReloadSourceFromDiskAsync(HostProfile source)
-    {
-        if (string.IsNullOrWhiteSpace(source.LocalPath) || !File.Exists(source.LocalPath))
-        {
-            return false;
-        }
-
-        try
-        {
-            var text = await File.ReadAllTextAsync(source.LocalPath);
-            source.LastLoadedFromDiskEntries = text;
-            if (string.Equals(text, source.Entries, StringComparison.Ordinal))
-            {
-                return false;
-            }
-
-            source.Entries = text;
-            return true;
-        }
-        catch
-        {
-            return false;
-        }
-    }
-
     private bool HandleMissingLocalSourceState(HostProfile source)
     {
-        if (source.SourceType != SourceType.Local || string.IsNullOrWhiteSpace(source.LocalPath))
+        var changed = localSourceService.UpdateMissingFileState(source);
+        if (!changed)
         {
             return false;
         }
 
-        var exists = File.Exists(source.LocalPath);
-        if (!exists)
+        if (source.IsMissingLocalFile)
         {
-            var changed = !source.IsMissingLocalFile || source.IsEnabled;
-            source.IsMissingLocalFile = true;
-            source.IsEnabled = false;
-
-            if (changed)
-            {
-                StatusMessage = $"Local source file not found. Source disabled: {source.Name}";
-                if (ReferenceEquals(source, SelectedProfile))
-                {
-                    ReloadLocalSourceCommand.NotifyCanExecuteChanged();
-                    SaveEntriesToLocalCommand.NotifyCanExecuteChanged();
-                    SaveSelectedSourceCommand.NotifyCanExecuteChanged();
-                    RecreateMissingLocalFileCommand.NotifyCanExecuteChanged();
-                    OnPropertyChanged(nameof(IsSelectedEntriesReadOnly));
-                    OnPropertyChanged(nameof(IsSelectedLocalFileMissing));
-                }
-            }
-
-            return changed;
+            StatusMessage = $"Local source file not found. Source disabled: {source.Name}";
         }
 
-        var wasMissing = source.IsMissingLocalFile;
-        source.IsMissingLocalFile = false;
-        if (wasMissing && ReferenceEquals(source, SelectedProfile))
+        if (ReferenceEquals(source, SelectedProfile))
         {
             ReloadLocalSourceCommand.NotifyCanExecuteChanged();
             SaveEntriesToLocalCommand.NotifyCanExecuteChanged();
@@ -359,6 +215,6 @@ public partial class MainWindowViewModel
             OnPropertyChanged(nameof(IsSelectedLocalFileMissing));
         }
 
-        return false;
+        return true;
     }
 }

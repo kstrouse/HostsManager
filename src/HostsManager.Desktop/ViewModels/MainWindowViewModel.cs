@@ -23,6 +23,7 @@ public partial class MainWindowViewModel : ViewModelBase
 {
     private readonly IProfileStore profileStore;
     private readonly IHostsFileService hostsFileService;
+    private readonly ILocalSourceService localSourceService;
     private readonly IStartupRegistrationService startupRegistrationService;
     private readonly IWindowsElevationService windowsElevationService;
     private readonly IAzurePrivateDnsService azurePrivateDnsService;
@@ -151,6 +152,7 @@ public partial class MainWindowViewModel : ViewModelBase
         : this(
             new ProfileStore(),
             new HostsFileService(),
+            new LocalSourceService(),
             new StartupRegistrationService(),
             new WindowsElevationService(),
             CreateDefaultHttpClient(),
@@ -163,6 +165,7 @@ public partial class MainWindowViewModel : ViewModelBase
     public MainWindowViewModel(
         IProfileStore profileStore,
         IHostsFileService hostsFileService,
+        ILocalSourceService localSourceService,
         IStartupRegistrationService startupRegistrationService,
         IWindowsElevationService windowsElevationService,
         HttpClient httpClient,
@@ -172,6 +175,7 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         this.profileStore = profileStore;
         this.hostsFileService = hostsFileService;
+        this.localSourceService = localSourceService;
         this.startupRegistrationService = startupRegistrationService;
         this.windowsElevationService = windowsElevationService;
         this.httpClient = httpClient;
@@ -1176,7 +1180,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
             if (ReferenceEquals(source, SelectedProfile))
             {
-                if (await TryHasDiskContentChangedAsync(source))
+                if (await localSourceService.HasDiskContentChangedAsync(source))
                 {
                     SetSelectedSourceExternalChangeNotification(source);
                 }
@@ -1184,7 +1188,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 continue;
             }
 
-            changed |= await TryReloadSourceFromDiskAsync(source);
+            changed |= await localSourceService.ReloadFromDiskAsync(source);
         }
 
         return changed;
@@ -1606,7 +1610,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         if (skipSelectedProfile && ReferenceEquals(SelectedProfile, systemSource))
         {
-            if (await TryHasDiskContentChangedAsync(systemSource))
+            if (await localSourceService.HasDiskContentChangedAsync(systemSource))
             {
                 SetSelectedSourceExternalChangeNotification(systemSource);
             }
@@ -1614,7 +1618,7 @@ public partial class MainWindowViewModel : ViewModelBase
             return false;
         }
 
-        var changed = await TryReloadSourceFromDiskAsync(systemSource);
+        var changed = await localSourceService.ReloadFromDiskAsync(systemSource);
         if (changed && ReferenceEquals(SelectedProfile, systemSource))
         {
             var current = SelectedProfile;
