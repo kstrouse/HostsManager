@@ -219,9 +219,10 @@ public class HostsFileService
                 .Replace("\r\n", "\n")
                 .Split('\n', StringSplitOptions.RemoveEmptyEntries)
                 .Select(line => line.Trim())
-                .Where(line => !string.IsNullOrWhiteSpace(line));
+                .Where(line => !string.IsNullOrWhiteSpace(line))
+                .ToList();
 
-            if (!lines.Any())
+            if (!lines.Any(line => !IsCommentLine(line)))
             {
                 continue;
             }
@@ -241,6 +242,11 @@ public class HostsFileService
         return block.Contains("# source:", StringComparison.Ordinal)
             ? block
             : string.Empty;
+    }
+
+    private static bool IsCommentLine(string line)
+    {
+        return line.StartsWith('#');
     }
 
     private static string ExtractManagedBlock(string content)

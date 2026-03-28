@@ -113,6 +113,7 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         null => true,
         { SourceType: SourceType.Remote } => true,
+        { SourceType: SourceType.Local, IsMissingLocalFile: true } => true,
         { SourceType: SourceType.System } => !IsSystemHostsEditingEnabled,
         { IsReadOnly: true } => true,
         _ => false
@@ -143,6 +144,8 @@ public partial class MainWindowViewModel : ViewModelBase
         SelectedProfile?.SourceType == SourceType.Local && !string.IsNullOrWhiteSpace(SelectedProfile.LocalPath)
             ? Path.GetDirectoryName(SelectedProfile.LocalPath) ?? string.Empty
             : string.Empty;
+    public bool IsSelectedLocalFileMissing =>
+        SelectedProfile is { SourceType: SourceType.Local, IsMissingLocalFile: true };
 
     public MainWindowViewModel()
     {
@@ -418,6 +421,12 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
+        if (SelectedProfile.IsMissingLocalFile)
+        {
+            StatusMessage = $"Local source file not found: {SelectedProfile.LocalPath}";
+            return;
+        }
+
         try
         {
             SelectedProfile.Entries = await File.ReadAllTextAsync(SelectedProfile.LocalPath);
@@ -442,6 +451,12 @@ public partial class MainWindowViewModel : ViewModelBase
         if (SelectedProfile.SourceType != SourceType.Local || string.IsNullOrWhiteSpace(SelectedProfile.LocalPath))
         {
             StatusMessage = "Select a local source with a valid file path first.";
+            return;
+        }
+
+        if (SelectedProfile.IsMissingLocalFile)
+        {
+            StatusMessage = $"Local source file not found: {SelectedProfile.LocalPath}";
             return;
         }
 
@@ -578,17 +593,24 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool CanReloadLocalSource() =>
         SelectedProfile is not null &&
         SelectedProfile.SourceType == SourceType.Local &&
+        !SelectedProfile.IsMissingLocalFile &&
         !string.IsNullOrWhiteSpace(SelectedProfile.LocalPath);
 
     private bool CanSaveEntriesToLocal() =>
         SelectedProfile is not null &&
         SelectedProfile.SourceType == SourceType.Local &&
+        !SelectedProfile.IsMissingLocalFile &&
         !string.IsNullOrWhiteSpace(SelectedProfile.LocalPath);
+
+    private bool CanRecreateMissingLocalFile() =>
+        SelectedProfile is { SourceType: SourceType.Local, IsMissingLocalFile: true } profile &&
+        !string.IsNullOrWhiteSpace(profile.LocalPath);
 
     private bool CanSaveSelectedSource() =>
         SelectedProfile switch
         {
             null => false,
+            { SourceType: SourceType.Local, IsMissingLocalFile: true } => false,
             { SourceType: SourceType.System } => IsSystemHostsEditingEnabled,
             _ => !SelectedProfile.IsReadOnly
         };
@@ -692,6 +714,53 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool CanOpenSelectedLocalFolder() =>
         SelectedProfile is { SourceType: SourceType.Local } profile &&
         !string.IsNullOrWhiteSpace(profile.LocalPath);
+
+    [RelayCommand(CanExecute = nameof(CanRecreateMissingLocalFile))]
+    private async Task RecreateMissingLocalFileAsync()
+    {
+        if (SelectedProfile is not { SourceType: SourceType.Local, IsMissingLocalFile: true } profile ||
+            string.IsNullOrWhiteSpace(profile.LocalPath))
+        {
+            return;
+        }
+
+        try
+        {
+            var directory = Path.GetDirectoryName(profile.LocalPath);
+            if (string.IsNullOrWhiteSpace(directory))
+            {
+                StatusMessage = "Local source folder not found.";
+                return;
+            }
+
+            Directory.CreateDirectory(directory);
+
+            var content = profile.LastLoadedFromDiskEntries ?? profile.Entries ?? string.Empty;
+            await File.WriteAllTextAsync(profile.LocalPath, content);
+
+            profile.Entries = content;
+            profile.LastLoadedFromDiskEntries = content;
+            profile.IsMissingLocalFile = false;
+            profile.IsEnabled = true;
+            localSourcesDirty = true;
+
+            OnPropertyChanged(nameof(SelectedProfile));
+            OnPropertyChanged(nameof(IsSelectedEntriesReadOnly));
+            OnPropertyChanged(nameof(IsSelectedLocalFileMissing));
+            ReloadLocalSourceCommand.NotifyCanExecuteChanged();
+            SaveEntriesToLocalCommand.NotifyCanExecuteChanged();
+            SaveSelectedSourceCommand.NotifyCanExecuteChanged();
+            RecreateMissingLocalFileCommand.NotifyCanExecuteChanged();
+
+            await SaveProfilesAsync();
+            await RunBackgroundManagementTickAsync();
+            StatusMessage = $"Re-created local source file: {Path.GetFileName(profile.LocalPath)}";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Re-create local file failed: {ex.Message}";
+        }
+    }
 
     private async Task SaveSystemHostsDirectAsync(HostProfile profile)
     {
@@ -1326,6 +1395,17 @@ public partial class MainWindowViewModel : ViewModelBase
                 continue;
             }
 
+            if (HandleMissingLocalSourceState(source))
+            {
+                changed = true;
+                if (ReferenceEquals(source, SelectedProfile))
+                {
+                    OnPropertyChanged(nameof(SelectedProfile));
+                }
+
+                continue;
+            }
+
             if (ReferenceEquals(source, SelectedProfile))
             {
                 if (await TryHasDiskContentChangedAsync(source))
@@ -1492,12 +1572,14 @@ public partial class MainWindowViewModel : ViewModelBase
         OnPropertyChanged(nameof(IsAzurePrivateDnsRemoteSelected));
         OnPropertyChanged(nameof(SelectedLocalFilePath));
         OnPropertyChanged(nameof(SelectedLocalFolderPath));
+        OnPropertyChanged(nameof(IsSelectedLocalFileMissing));
         OnPropertyChanged(nameof(CanRefreshAzureZones));
         ReloadLocalSourceCommand.NotifyCanExecuteChanged();
         SaveEntriesToLocalCommand.NotifyCanExecuteChanged();
         OpenSelectedLocalFolderCommand.NotifyCanExecuteChanged();
         ReadSelectedRemoteHostsCommand.NotifyCanExecuteChanged();
         DeleteProfileCommand.NotifyCanExecuteChanged();
+        RecreateMissingLocalFileCommand.NotifyCanExecuteChanged();
     }
 
     partial void OnSelectedAzureSubscriptionChanged(AzureSubscriptionOption? value)
@@ -1838,6 +1920,52 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             return false;
         }
+    }
+
+    private bool HandleMissingLocalSourceState(HostProfile source)
+    {
+        if (source.SourceType != SourceType.Local || string.IsNullOrWhiteSpace(source.LocalPath))
+        {
+            return false;
+        }
+
+        var exists = File.Exists(source.LocalPath);
+        if (!exists)
+        {
+            var changed = !source.IsMissingLocalFile || source.IsEnabled;
+            source.IsMissingLocalFile = true;
+            source.IsEnabled = false;
+
+            if (changed)
+            {
+                StatusMessage = $"Local source file not found. Source disabled: {source.Name}";
+                if (ReferenceEquals(source, SelectedProfile))
+                {
+                    ReloadLocalSourceCommand.NotifyCanExecuteChanged();
+                    SaveEntriesToLocalCommand.NotifyCanExecuteChanged();
+                    SaveSelectedSourceCommand.NotifyCanExecuteChanged();
+                    RecreateMissingLocalFileCommand.NotifyCanExecuteChanged();
+                    OnPropertyChanged(nameof(IsSelectedEntriesReadOnly));
+                    OnPropertyChanged(nameof(IsSelectedLocalFileMissing));
+                }
+            }
+
+            return changed;
+        }
+
+        var wasMissing = source.IsMissingLocalFile;
+        source.IsMissingLocalFile = false;
+        if (wasMissing && ReferenceEquals(source, SelectedProfile))
+        {
+            ReloadLocalSourceCommand.NotifyCanExecuteChanged();
+            SaveEntriesToLocalCommand.NotifyCanExecuteChanged();
+            SaveSelectedSourceCommand.NotifyCanExecuteChanged();
+            RecreateMissingLocalFileCommand.NotifyCanExecuteChanged();
+            OnPropertyChanged(nameof(IsSelectedEntriesReadOnly));
+            OnPropertyChanged(nameof(IsSelectedLocalFileMissing));
+        }
+
+        return false;
     }
 
     private void SetPendingElevatedHostsUpdate(bool forBackgroundApply)

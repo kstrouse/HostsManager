@@ -73,6 +73,9 @@ public partial class HostProfile : ObservableObject
     [ObservableProperty]
     private bool isReadOnly;
 
+    [ObservableProperty]
+    private bool isMissingLocalFile;
+
     [JsonIgnore]
     public string? LastLoadedFromDiskEntries { get; set; }
 
@@ -101,7 +104,8 @@ public partial class HostProfile : ObservableObject
             _ => remoteTransport.ToString()
         };
 
-    public bool CanToggleEnabled => !IsReadOnly;
+    [JsonIgnore]
+    public bool CanToggleEnabled => !IsReadOnly && !IsMissingLocalFile;
 
     partial void OnSourceTypeChanged(SourceType value)
     {
@@ -123,6 +127,11 @@ public partial class HostProfile : ObservableObject
     }
 
     partial void OnIsReadOnlyChanged(bool value)
+    {
+        OnPropertyChanged(nameof(CanToggleEnabled));
+    }
+
+    partial void OnIsMissingLocalFileChanged(bool value)
     {
         OnPropertyChanged(nameof(CanToggleEnabled));
     }
