@@ -1,7 +1,7 @@
 # Build outputs
 **/bin/
 **/obj/
-artifacts/publish/
+artifacts/
 
 # User-specific IDE files
 *.user

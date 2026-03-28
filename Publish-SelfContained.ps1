@@ -17,8 +17,8 @@ foreach ($rid in $RuntimeIdentifiers) {
         -c $Configuration `
         -r $rid `
         --self-contained true `
-        -p:PublishSingleFile=true `
-        -p:IncludeNativeLibrariesForSelfExtract=true `
+        -p:PublishSingleFile=false `
+        -p:UseAppHost=true `
         -p:DebugType=None `
         -p:DebugSymbols=false `
         -o $outputPath
@@ -29,4 +29,4 @@ foreach ($rid in $RuntimeIdentifiers) {
 }
 
 Write-Host ""
-Write-Host "Publish complete. Artifacts are under $publishRoot" -ForegroundColor Green
+Write-Host "Publish complete. App folders are under $publishRoot" -ForegroundColor Green

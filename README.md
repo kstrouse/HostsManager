@@ -83,9 +83,9 @@ dotnet run --project .\HostsManager\HostsManager.csproj
 dotnet build .\HostsManager\HostsManager.csproj
 ```
 
-### Self-contained single-file publish
+### Self-contained folder publish
 
-Build quick-share self-contained single-file artifacts for Windows and macOS:
+Build self-contained app folders for Windows and macOS:
 
 ```powershell
 .\Publish-SelfContained.ps1
@@ -96,6 +96,23 @@ Outputs:
 - `artifacts/publish/win-x64`
 - `artifacts/publish/osx-x64`
 - `artifacts/publish/osx-arm64`
+
+### Windows Installer
+
+Build an installer-ready Windows publish and, if Inno Setup 6 is installed, compile a Windows installer:
+
+```powershell
+.\Build-WindowsInstaller.ps1 -Version 1.0.0
+```
+
+Outputs:
+
+- Publish folder: `artifacts/publish/win-x64`
+- Installer: `artifacts/installer/HostsManager-1.0.0-Setup.exe`
+
+Requirements:
+
+- Inno Setup 6 installed at `C:\Program Files (x86)\Inno Setup 6\ISCC.exe`
 
 ### What it does
 
@@ -123,6 +140,6 @@ Outputs:
 Applying or restoring hosts requires elevated privileges:
 
 - Windows:
-	- App now requests elevation at startup and relaunches elevated when needed
-	- Requires UAC approval on launch
+	- App starts normally and requests elevation only when a hosts-file update needs approval
+	- Run-at-startup registration is per-user and does not require startup-time elevation
 - macOS/Linux: run with `sudo` as needed
