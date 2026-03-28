@@ -41,10 +41,23 @@
         </Style>
     </Window.Styles>
 
-    <Grid Margin="12" RowDefinitions="Auto,*,Auto" RowSpacing="10">
+    <Grid Margin="12" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="10">
         <TextBlock Grid.Row="0" Text="Quick Source Toggle" FontSize="15" FontWeight="SemiBold" />
 
-        <Border Grid.Row="1" BorderBrush="#2F3742" BorderThickness="1" CornerRadius="6" Background="#141A22" Padding="6">
+        <Border Grid.Row="1"
+                IsVisible="{Binding HasPendingElevatedHostsUpdate}"
+                Background="#3A2414"
+                BorderBrush="#7A4A1F"
+                BorderThickness="1"
+                CornerRadius="6"
+                Padding="8,6">
+            <TextBlock Text="Pending hosts changes need administrator approval. Use Apply to elevate."
+                       TextWrapping="Wrap"
+                       Foreground="#FFD8A8"
+                       FontSize="11" />
+        </Border>
+
+        <Border Grid.Row="2" BorderBrush="#2F3742" BorderThickness="1" CornerRadius="6" Background="#141A22" Padding="6">
             <ScrollViewer VerticalScrollBarVisibility="Auto">
                 <ItemsControl ItemsSource="{Binding Profiles}">
                     <ItemsControl.ItemTemplate>
@@ -76,9 +89,10 @@
             </ScrollViewer>
         </Border>
 
-        <Grid Grid.Row="2" ColumnDefinitions="*,Auto" ColumnSpacing="8">
-            <Button Grid.Column="0" Content="Exit App" Click="ExitAppClick" />
-            <Button Grid.Column="1" Content="Open Full Editor" Click="OpenFullEditorClick" />
+        <Grid Grid.Row="3" ColumnDefinitions="Auto,*,Auto" ColumnSpacing="8">
+            <Button Grid.Column="0" Content="Apply" Click="ApplyHostsClick" />
+            <Button Grid.Column="1" Content="Exit App" Click="ExitAppClick" />
+            <Button Grid.Column="2" Content="Open Full Editor" Click="OpenFullEditorClick" />
         </Grid>
     </Grid>
 </Window>

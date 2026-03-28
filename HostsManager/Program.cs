@@ -1,88 +1,67 @@
-﻿using Avalonia;
-using System.Diagnostics;
-using System.Linq;
-using System.Runtime.InteropServices;
-using System.Security.Principal;
+using Avalonia;
 using System;
+using System.Linq;
 
 namespace HostsManager;
+
+public enum StartupAction
+{
+    None,
+    ApplyManagedHosts,
+    RestoreBackup,
+    SaveRawHosts
+}
 
 sealed class Program
 {
     public static bool StartInBackground { get; private set; }
+    public static StartupAction PendingStartupAction { get; private set; }
+    public static string? StartupActionPayloadPath { get; private set; }
 
-    // Initialization code. Don't use any Avalonia, third-party APIs or any
-    // SynchronizationContext-reliant code before AppMain is called: things aren't initialized
-    // yet and stuff might break.
     [STAThread]
     public static void Main(string[] args)
     {
         StartInBackground = args.Any(arg => string.Equals(arg, "--background", StringComparison.OrdinalIgnoreCase));
-
-        if (NeedsElevation())
-        {
-            TryRestartElevated();
-            return;
-        }
-
+        ParseStartupAction(args);
         BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
     }
 
-    // Avalonia configuration, don't remove; also used by visual designer.
     public static AppBuilder BuildAvaloniaApp()
         => AppBuilder.Configure<App>()
             .UsePlatformDetect()
             .WithInterFont()
             .LogToTrace();
 
-    private static bool NeedsElevation()
+    public static void ConsumeStartupAction()
     {
-        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-        {
-            return false;
-        }
-
-        using var identity = WindowsIdentity.GetCurrent();
-        var principal = new WindowsPrincipal(identity);
-        return !principal.IsInRole(WindowsBuiltInRole.Administrator);
+        PendingStartupAction = StartupAction.None;
+        StartupActionPayloadPath = null;
     }
 
-    private static void TryRestartElevated()
+    private static void ParseStartupAction(string[] args)
     {
-        var commandArgs = Environment.GetCommandLineArgs().Skip(1).Select(QuoteArg);
-        var argumentString = string.Join(" ", commandArgs);
+        PendingStartupAction = StartupAction.None;
+        StartupActionPayloadPath = null;
 
-        var startInfo = new ProcessStartInfo
+        for (var i = 0; i < args.Length; i++)
         {
-            FileName = Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule?.FileName,
-            Arguments = argumentString,
-            UseShellExecute = true,
-            Verb = "runas"
-        };
-
-        if (string.IsNullOrWhiteSpace(startInfo.FileName))
-        {
-            return;
+            var arg = args[i];
+            if (string.Equals(arg, "--apply-managed-hosts", StringComparison.OrdinalIgnoreCase))
+            {
+                PendingStartupAction = StartupAction.ApplyManagedHosts;
+            }
+            else if (string.Equals(arg, "--restore-backup", StringComparison.OrdinalIgnoreCase))
+            {
+                PendingStartupAction = StartupAction.RestoreBackup;
+            }
+            else if (string.Equals(arg, "--save-raw-hosts", StringComparison.OrdinalIgnoreCase))
+            {
+                PendingStartupAction = StartupAction.SaveRawHosts;
+            }
+            else if (string.Equals(arg, "--payload-path", StringComparison.OrdinalIgnoreCase) && i + 1 < args.Length)
+            {
+                StartupActionPayloadPath = args[++i];
+            }
         }
-
-        try
-        {
-            Process.Start(startInfo);
-        }
-        catch
-        {
-        }
-    }
-
-    private static string QuoteArg(string arg)
-    {
-        if (string.IsNullOrEmpty(arg))
-        {
-            return "\"\"";
-        }
-
-        return arg.Contains(' ') || arg.Contains('"')
-            ? $"\"{arg.Replace("\"", "\\\"")}\""
-            : arg;
     }
 }

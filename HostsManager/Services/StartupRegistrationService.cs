@@ -1,6 +1,9 @@
 using System;
 using System.Diagnostics;
+using Microsoft.Win32;
 using System.Runtime.InteropServices;
+using System.Runtime.Versioning;
+using System.Security.Principal;
 using System.Threading;
 using System.Threading.Tasks;
 
@@ -8,29 +11,44 @@ namespace HostsManager.Services;
 
 public class StartupRegistrationService
 {
-    private const string TaskName = "Hosts Manager Startup";
+    private const string RunKeyPath = @"Software\Microsoft\Windows\CurrentVersion\Run";
+    private const string RunValueName = "HostsManager";
+    private const string LegacyTaskName = "Hosts Manager Startup";
 
     public bool IsSupported =>
         RuntimeInformation.IsOSPlatform(OSPlatform.Windows);
 
     public async Task<bool> IsEnabledAsync(CancellationToken cancellationToken = default)
     {
-        if (!IsSupported)
+        if (!OperatingSystem.IsWindows())
         {
             return false;
         }
 
-        var result = await RunSchtasksAsync($"/Query /TN {QuoteArg(TaskName)}", cancellationToken);
-        return result.ExitCode == 0;
+        return await IsEnabledWindowsAsync();
     }
 
     public async Task SetEnabledAsync(bool enabled, CancellationToken cancellationToken = default)
     {
-        if (!IsSupported)
+        if (!OperatingSystem.IsWindows())
         {
             return;
         }
 
+        await SetEnabledWindowsAsync(enabled, cancellationToken);
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static Task<bool> IsEnabledWindowsAsync()
+    {
+        using var key = OpenStartupKey(writable: false);
+        var value = key?.GetValue(RunValueName) as string;
+        return Task.FromResult(!string.IsNullOrWhiteSpace(value));
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static async Task SetEnabledWindowsAsync(bool enabled, CancellationToken cancellationToken)
+    {
         if (enabled)
         {
             var executablePath = Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule?.FileName;
@@ -39,25 +57,123 @@ public class StartupRegistrationService
                 throw new InvalidOperationException("Unable to determine the current executable path.");
             }
 
-            var taskAction = $"{QuoteForTaskAction(executablePath)} --background";
-            var createArguments =
-                $"/Create /F /TN {QuoteArg(TaskName)} /SC ONLOGON /RL HIGHEST /IT /TR \"{taskAction}\"";
-
-            var createResult = await RunSchtasksAsync(createArguments, cancellationToken);
-            if (createResult.ExitCode != 0)
-            {
-                throw new InvalidOperationException(GetSchtasksError(createResult));
-            }
-
+            using var key = OpenStartupKey(writable: true) ??
+                            throw new InvalidOperationException("Unable to open the startup registry key for the logged-in user.");
+            key.SetValue(RunValueName, $"{QuoteCommandValue(executablePath)} --background", RegistryValueKind.String);
+            await TryDeleteLegacyTaskAsync(cancellationToken);
             return;
         }
 
-        var deleteResult = await RunSchtasksAsync($"/Delete /F /TN {QuoteArg(TaskName)}", cancellationToken);
-        if (deleteResult.ExitCode != 0 &&
-            deleteResult.StandardError.IndexOf("cannot find the file specified", StringComparison.OrdinalIgnoreCase) < 0 &&
-            deleteResult.StandardOutput.IndexOf("cannot find the file specified", StringComparison.OrdinalIgnoreCase) < 0)
+        using (var key = OpenStartupKey(writable: true))
         {
-            throw new InvalidOperationException(GetSchtasksError(deleteResult));
+            key?.DeleteValue(RunValueName, throwOnMissingValue: false);
+        }
+
+        await TryDeleteLegacyTaskAsync(cancellationToken);
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static RegistryKey? OpenStartupKey(bool writable)
+    {
+        var interactiveUserSid = TryGetInteractiveUserSid();
+        if (string.IsNullOrWhiteSpace(interactiveUserSid))
+        {
+            return writable
+                ? Registry.CurrentUser.CreateSubKey(RunKeyPath, writable: true)
+                : Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: false);
+        }
+
+        var fullPath = $"{interactiveUserSid}\\{RunKeyPath}";
+        return writable
+            ? Registry.Users.CreateSubKey(fullPath, writable: true)
+            : Registry.Users.OpenSubKey(fullPath, writable: false);
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static string? TryGetInteractiveUserSid()
+    {
+        try
+        {
+            var currentIdentity = WindowsIdentity.GetCurrent();
+            var currentSid = currentIdentity.User?.Value;
+            var currentSessionId = Process.GetCurrentProcess().SessionId;
+
+            if (!TryGetSessionUserAccount(currentSessionId, out var accountName))
+            {
+                return currentSid;
+            }
+
+            var interactiveSid = ((SecurityIdentifier)new NTAccount(accountName).Translate(typeof(SecurityIdentifier))).Value;
+            return string.IsNullOrWhiteSpace(interactiveSid)
+                ? currentSid
+                : interactiveSid;
+        }
+        catch
+        {
+            try
+            {
+                return WindowsIdentity.GetCurrent().User?.Value;
+            }
+            catch
+            {
+                return null;
+            }
+        }
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static bool TryGetSessionUserAccount(int sessionId, out string accountName)
+    {
+        accountName = string.Empty;
+
+        if (!TryQuerySessionString(sessionId, WtsInfoClass.WTSUserName, out var userName) ||
+            string.IsNullOrWhiteSpace(userName))
+        {
+            return false;
+        }
+
+        TryQuerySessionString(sessionId, WtsInfoClass.WTSDomainName, out var domainName);
+        accountName = string.IsNullOrWhiteSpace(domainName)
+            ? userName
+            : $"{domainName}\\{userName}";
+
+        return true;
+    }
+
+    [SupportedOSPlatform("windows")]
+    private static bool TryQuerySessionString(int sessionId, WtsInfoClass infoClass, out string value)
+    {
+        value = string.Empty;
+        if (!WTSQuerySessionInformation(IntPtr.Zero, sessionId, infoClass, out var buffer, out var bytesReturned) ||
+            buffer == IntPtr.Zero ||
+            bytesReturned <= 1)
+        {
+            return false;
+        }
+
+        try
+        {
+            value = Marshal.PtrToStringUni(buffer)?.TrimEnd('\0') ?? string.Empty;
+            return !string.IsNullOrWhiteSpace(value);
+        }
+        finally
+        {
+            WTSFreeMemory(buffer);
+        }
+    }
+
+    private static async Task TryDeleteLegacyTaskAsync(CancellationToken cancellationToken)
+    {
+        var deleteResult = await RunSchtasksAsync($"/Delete /F /TN {QuoteArg(LegacyTaskName)}", cancellationToken);
+        if (deleteResult.ExitCode == 0)
+        {
+            return;
+        }
+
+        if (deleteResult.StandardError.IndexOf("cannot find the file specified", StringComparison.OrdinalIgnoreCase) >= 0 ||
+            deleteResult.StandardOutput.IndexOf("cannot find the file specified", StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            return;
         }
     }
 
@@ -88,25 +204,31 @@ public class StartupRegistrationService
             await errorTask);
     }
 
-    private static string GetSchtasksError(ProcessResult result)
-    {
-        var message = string.IsNullOrWhiteSpace(result.StandardError)
-            ? result.StandardOutput
-            : result.StandardError;
-
-        return string.IsNullOrWhiteSpace(message)
-            ? "Task Scheduler command failed."
-            : message.Trim();
-    }
-
     private static string QuoteArg(string value)
     {
         return $"\"{value.Replace("\"", "\"\"")}\"";
     }
 
-    private static string QuoteForTaskAction(string value)
+    private static string QuoteCommandValue(string value)
     {
-        return $"\\\"{value.Replace("\"", "\\\"")}\\\"";
+        return $"\"{value.Replace("\"", "\\\"")}\"";
+    }
+
+    [DllImport("wtsapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+    private static extern bool WTSQuerySessionInformation(
+        IntPtr hServer,
+        int sessionId,
+        WtsInfoClass wtsInfoClass,
+        out IntPtr ppBuffer,
+        out int pBytesReturned);
+
+    [DllImport("wtsapi32.dll")]
+    private static extern void WTSFreeMemory(IntPtr memory);
+
+    private enum WtsInfoClass
+    {
+        WTSUserName = 5,
+        WTSDomainName = 7
     }
 
     private sealed record ProcessResult(int ExitCode, string StandardOutput, string StandardError);

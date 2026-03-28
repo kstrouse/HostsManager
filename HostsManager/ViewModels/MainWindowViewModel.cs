@@ -9,6 +9,8 @@ using System.Net.Http;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
+using Avalonia;
+using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Threading;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
@@ -22,6 +24,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly ProfileStore profileStore;
     private readonly HostsFileService hostsFileService;
     private readonly StartupRegistrationService startupRegistrationService;
+    private readonly WindowsElevationService windowsElevationService;
     private readonly AzurePrivateDnsService azurePrivateDnsService;
     private readonly HttpClient httpClient;
     private readonly DispatcherTimer refreshTimer;
@@ -56,6 +59,9 @@ public partial class MainWindowViewModel : ViewModelBase
 
     [ObservableProperty]
     private bool runAtStartup;
+
+    [ObservableProperty]
+    private bool hasPendingElevatedHostsUpdate;
 
     [ObservableProperty]
     private AzureSubscriptionOption? selectedAzureSubscription;
@@ -143,6 +149,7 @@ public partial class MainWindowViewModel : ViewModelBase
         profileStore = new ProfileStore();
         hostsFileService = new HostsFileService();
         startupRegistrationService = new StartupRegistrationService();
+        windowsElevationService = new WindowsElevationService();
         httpClient = new HttpClient();
         azurePrivateDnsService = new AzurePrivateDnsService(httpClient);
         localSourceWatchers = new Dictionary<string, FileSystemWatcher>(StringComparer.OrdinalIgnoreCase);
@@ -190,6 +197,7 @@ public partial class MainWindowViewModel : ViewModelBase
             }
 
             SelectedProfile = Profiles.FirstOrDefault();
+            InitializeManagedStateFromSystemHosts();
             await EnsureRunAtStartupMatchesPreferenceAsync();
             lastSavedSignature = BuildPersistenceSignature();
 
@@ -197,8 +205,14 @@ public partial class MainWindowViewModel : ViewModelBase
             manageTimer.Start();
             localSourcesDirty = true;
             await RunBackgroundManagementTickAsync();
+            var hadPendingStartupAction = Program.PendingStartupAction != StartupAction.None;
+            await ExecutePendingStartupActionAsync();
 
-            StatusMessage = $"Loaded {Profiles.Count} source(s).";
+            if (!hadPendingStartupAction)
+            {
+                StatusMessage = $"Loaded {Profiles.Count} source(s).";
+            }
+
             isInitialized = true;
         }
         catch (Exception ex)
@@ -340,6 +354,11 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private async Task ApplyToSystemHostsAsync()
     {
+        if (await TryEscalateWindowsActionAsync(StartupAction.ApplyManagedHosts))
+        {
+            return;
+        }
+
         try
         {
             await hostsFileService.ApplySourcesAsync(Profiles, allowPrivilegePrompt: true);
@@ -347,11 +366,12 @@ public partial class MainWindowViewModel : ViewModelBase
             var signature = BuildManagedSignature();
             lastAppliedSignature = signature;
             lastAttemptedSignature = signature;
+            HasPendingElevatedHostsUpdate = false;
             StatusMessage = "Applied enabled sources to system hosts file.";
         }
         catch (UnauthorizedAccessException)
         {
-            StatusMessage = GetHostsPermissionDeniedMessage(forBackgroundApply: false);
+            SetPendingElevatedHostsUpdate(forBackgroundApply: false);
         }
         catch (Exception ex)
         {
@@ -362,15 +382,21 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private async Task RestoreBackupAsync()
     {
+        if (await TryEscalateWindowsActionAsync(StartupAction.RestoreBackup))
+        {
+            return;
+        }
+
         try
         {
             await hostsFileService.RestoreBackupAsync(allowPrivilegePrompt: true);
             await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: false);
+            HasPendingElevatedHostsUpdate = false;
             StatusMessage = "Hosts file restored from backup.";
         }
         catch (UnauthorizedAccessException)
         {
-            StatusMessage = GetHostsPermissionDeniedMessage(forBackgroundApply: false);
+            SetPendingElevatedHostsUpdate(forBackgroundApply: false);
         }
         catch (Exception ex)
         {
@@ -669,6 +695,11 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private async Task SaveSystemHostsDirectAsync(HostProfile profile)
     {
+        if (await TryEscalateWindowsActionAsync(StartupAction.SaveRawHosts, profile.Entries ?? string.Empty))
+        {
+            return;
+        }
+
         try
         {
             await hostsFileService.SaveRawHostsFileAsync(profile.Entries ?? string.Empty, allowPrivilegePrompt: true);
@@ -676,11 +707,12 @@ public partial class MainWindowViewModel : ViewModelBase
             localSourcesDirty = true;
             IsSystemHostsEditingEnabled = false;
             DismissSelectedSourceExternalChangeNotification();
+            HasPendingElevatedHostsUpdate = false;
             StatusMessage = "System hosts file saved.";
         }
         catch (UnauthorizedAccessException)
         {
-            StatusMessage = GetHostsPermissionDeniedMessage(forBackgroundApply: false);
+            SetPendingElevatedHostsUpdate(forBackgroundApply: false);
         }
         catch (Exception ex)
         {
@@ -1211,6 +1243,7 @@ public partial class MainWindowViewModel : ViewModelBase
                     var systemChangedAfterApply = await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: true);
                     lastAppliedSignature = signature;
                     lastAttemptedSignature = signature;
+                    HasPendingElevatedHostsUpdate = false;
 
                     if (hadAppliedChangeBefore || localContentChanged || systemChangedAfterApply)
                     {
@@ -1225,7 +1258,10 @@ public partial class MainWindowViewModel : ViewModelBase
                 catch (UnauthorizedAccessException)
                 {
                     lastAttemptedSignature = signature;
-                    StatusMessage = GetHostsPermissionDeniedMessage(forBackgroundApply: true);
+                    if (NeedsElevatedApply())
+                    {
+                        SetPendingElevatedHostsUpdate(forBackgroundApply: true);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -1600,7 +1636,7 @@ public partial class MainWindowViewModel : ViewModelBase
             await startupRegistrationService.SetEnabledAsync(value);
             await PersistSourcesIfChangedAsync();
             StatusMessage = value
-                ? "Startup enabled. Hosts Manager will launch elevated at Windows sign-in."
+                ? "Startup enabled. Hosts Manager will launch at Windows sign-in."
                 : "Startup disabled.";
         }
         catch (Exception ex)
@@ -1657,8 +1693,8 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         return forBackgroundApply
-            ? "Background manager needs elevated privileges to update hosts file."
-            : "Permission denied. Run with elevated privileges to modify hosts file.";
+            ? "Pending hosts changes need administrator approval. Click Apply to elevate."
+            : "Administrator approval is required to modify the hosts file.";
     }
 
     private static string GetRemoteTransportDisplay(RemoteTransport remoteTransport)
@@ -1793,6 +1829,152 @@ public partial class MainWindowViewModel : ViewModelBase
         catch
         {
             return false;
+        }
+    }
+
+    private void SetPendingElevatedHostsUpdate(bool forBackgroundApply)
+    {
+        HasPendingElevatedHostsUpdate = true;
+        StatusMessage = GetHostsPermissionDeniedMessage(forBackgroundApply);
+    }
+
+    private void InitializeManagedStateFromSystemHosts()
+    {
+        if (NeedsElevatedApply())
+        {
+            HasPendingElevatedHostsUpdate = false;
+            return;
+        }
+
+        var signature = BuildManagedSignature();
+        lastAppliedSignature = signature;
+        lastAttemptedSignature = signature;
+        HasPendingElevatedHostsUpdate = false;
+    }
+
+    private bool NeedsElevatedApply()
+    {
+        var systemSource = GetSystemSource();
+        if (systemSource is null)
+        {
+            return true;
+        }
+
+        return !hostsFileService.ManagedHostsMatch(Profiles, systemSource.Entries);
+    }
+
+    private async Task<bool> TryEscalateWindowsActionAsync(StartupAction action, string? rawHostsContent = null)
+    {
+        if (!windowsElevationService.IsSupported || windowsElevationService.IsProcessElevated())
+        {
+            return false;
+        }
+
+        string? payloadPath = null;
+        if (action == StartupAction.SaveRawHosts)
+        {
+            payloadPath = await WritePendingRawHostsPayloadAsync(rawHostsContent ?? string.Empty);
+        }
+
+        var startInBackground = ShouldRelaunchElevatedInBackground();
+        var relaunched = windowsElevationService.TryRelaunchElevated(action, payloadPath, startInBackground);
+        if (!relaunched)
+        {
+            StatusMessage = "Administrator approval was canceled or failed.";
+            return false;
+        }
+
+        if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            desktop.Shutdown();
+        }
+
+        return true;
+    }
+
+    private async Task<string> WritePendingRawHostsPayloadAsync(string content)
+    {
+        Directory.CreateDirectory(profileStore.ConfigDirectory);
+        var payloadPath = Path.Combine(profileStore.ConfigDirectory, "pending-system-hosts.txt");
+        await File.WriteAllTextAsync(payloadPath, content);
+        return payloadPath;
+    }
+
+    private static bool ShouldRelaunchElevatedInBackground()
+    {
+        if (Program.StartInBackground)
+        {
+            return true;
+        }
+
+        if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
+        {
+            return false;
+        }
+
+        return desktop.MainWindow?.IsVisible != true;
+    }
+
+    private async Task ExecutePendingStartupActionAsync()
+    {
+        if (Program.PendingStartupAction == StartupAction.None)
+        {
+            return;
+        }
+
+        try
+        {
+            switch (Program.PendingStartupAction)
+            {
+                case StartupAction.ApplyManagedHosts:
+                    await hostsFileService.ApplySourcesAsync(Profiles);
+                    await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: false);
+                    lastAppliedSignature = BuildManagedSignature();
+                    lastAttemptedSignature = lastAppliedSignature;
+                    HasPendingElevatedHostsUpdate = false;
+                    StatusMessage = "Applied enabled sources to system hosts file.";
+                    break;
+                case StartupAction.RestoreBackup:
+                    await hostsFileService.RestoreBackupAsync();
+                    await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: false);
+                    HasPendingElevatedHostsUpdate = false;
+                    StatusMessage = "Hosts file restored from backup.";
+                    break;
+                case StartupAction.SaveRawHosts:
+                    if (string.IsNullOrWhiteSpace(Program.StartupActionPayloadPath) ||
+                        !File.Exists(Program.StartupActionPayloadPath))
+                    {
+                        StatusMessage = "Pending system hosts content was not found.";
+                        break;
+                    }
+
+                    var content = await File.ReadAllTextAsync(Program.StartupActionPayloadPath);
+                    await hostsFileService.SaveRawHostsFileAsync(content);
+                    await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: false);
+                    localSourcesDirty = true;
+                    IsSystemHostsEditingEnabled = false;
+                    DismissSelectedSourceExternalChangeNotification();
+                    HasPendingElevatedHostsUpdate = false;
+                    StatusMessage = "System hosts file saved.";
+
+                    try
+                    {
+                        File.Delete(Program.StartupActionPayloadPath);
+                    }
+                    catch
+                    {
+                    }
+
+                    break;
+            }
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Startup action failed: {ex.Message}";
+        }
+        finally
+        {
+            Program.ConsumeStartupAction();
         }
     }
 }

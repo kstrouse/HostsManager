@@ -89,6 +89,16 @@ public class HostsFileService
         await WriteHostsFileAsync(hostsPath, content ?? string.Empty, allowPrivilegePrompt, cancellationToken);
     }
 
+    public bool ManagedHostsMatch(IEnumerable<HostProfile> sources, string? currentHostsContent)
+    {
+        var expectedManagedBlock = BuildManagedBlock(sources);
+        var actualManagedBlock = ExtractManagedBlock(currentHostsContent ?? string.Empty);
+        return string.Equals(
+            NormalizeForComparison(actualManagedBlock),
+            NormalizeForComparison(expectedManagedBlock),
+            StringComparison.Ordinal);
+    }
+
     private static async Task WriteHostsFileAsync(string hostsPath, string content, bool allowPrivilegePrompt, CancellationToken cancellationToken)
     {
         try
@@ -231,5 +241,37 @@ public class HostsFileService
         return block.Contains("# source:", StringComparison.Ordinal)
             ? block
             : string.Empty;
+    }
+
+    private static string ExtractManagedBlock(string content)
+    {
+        var lines = content.Replace("\r\n", "\n").Split('\n');
+        var result = new List<string>();
+        var inManaged = false;
+
+        foreach (var line in lines)
+        {
+            if (!inManaged && line.Trim() == BeginMarker)
+            {
+                inManaged = true;
+            }
+
+            if (inManaged)
+            {
+                result.Add(line);
+            }
+
+            if (inManaged && line.Trim() == EndMarker)
+            {
+                break;
+            }
+        }
+
+        return string.Join(Environment.NewLine, result).Trim();
+    }
+
+    private static string NormalizeForComparison(string value)
+    {
+        return value.Replace("\r\n", "\n").Trim();
     }
 }

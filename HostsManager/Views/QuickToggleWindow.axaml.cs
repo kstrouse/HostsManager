@@ -67,6 +67,14 @@ public partial class QuickToggleWindow : Window
         openFullEditorAction();
     }
 
+    private void ApplyHostsClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is MainWindowViewModel vm && vm.ApplyToSystemHostsCommand.CanExecute(null))
+        {
+            vm.ApplyToSystemHostsCommand.Execute(null);
+        }
+    }
+
     private void ExitAppClick(object? sender, RoutedEventArgs e)
     {
         exitAppAction();

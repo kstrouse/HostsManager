@@ -4,9 +4,11 @@ using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Data.Core;
 using Avalonia.Data.Core.Plugins;
 using System;
+using System.ComponentModel;
 using System.Linq;
 using System.Runtime.InteropServices;
 using Avalonia.Markup.Xaml;
+using HostsManager.Services;
 using HostsManager.ViewModels;
 using HostsManager.Views;
 
@@ -14,10 +16,14 @@ namespace HostsManager;
 
 public partial class App : Application
 {
+    private const string DefaultTrayToolTip = "Hosts Manager is running";
+    private const string PendingElevationTrayToolTip = "Hosts Manager needs administrator approval to apply pending hosts changes";
     private TrayIcon? trayIcon;
     private MainWindow? mainWindow;
     private QuickToggleWindow? quickToggleWindow;
     private IClassicDesktopStyleApplicationLifetime? desktopLifetime;
+    private MainWindowViewModel? viewModel;
+    private readonly DesktopNotificationService desktopNotificationService = new();
 
     public override void Initialize()
     {
@@ -69,6 +75,8 @@ public partial class App : Application
 
         if (mainWindow.DataContext is MainWindowViewModel vm)
         {
+            viewModel = vm;
+            viewModel.PropertyChanged += OnViewModelPropertyChanged;
             quickToggleWindow = new QuickToggleWindow(vm, () => ShowMainWindow(), ExitApplication);
         }
 
@@ -107,15 +115,22 @@ public partial class App : Application
 
         trayIcon = new TrayIcon
         {
-            ToolTipText = "Hosts Manager is running",
+            ToolTipText = DefaultTrayToolTip,
             Menu = menu,
             IsVisible = true,
             Icon = mainWindow.Icon
         };
 
+        UpdateTrayToolTip();
+
         trayIcon.Clicked += (_, _) => ShowQuickToggle();
         desktop.Exit += (_, _) =>
         {
+            if (viewModel is not null)
+            {
+                viewModel.PropertyChanged -= OnViewModelPropertyChanged;
+            }
+
             quickToggleWindow?.Close();
             trayIcon?.Dispose();
         };
@@ -188,5 +203,29 @@ public partial class App : Application
 
         trayIcon?.Dispose();
         desktopLifetime?.Shutdown();
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, PropertyChangedEventArgs e)
+    {
+        if (e.PropertyName == nameof(MainWindowViewModel.HasPendingElevatedHostsUpdate))
+        {
+            UpdateTrayToolTip();
+            if (viewModel?.HasPendingElevatedHostsUpdate == true)
+            {
+                desktopNotificationService.ShowPendingApplyNotification();
+            }
+        }
+    }
+
+    private void UpdateTrayToolTip()
+    {
+        if (trayIcon is null)
+        {
+            return;
+        }
+
+        trayIcon.ToolTipText = viewModel?.HasPendingElevatedHostsUpdate == true
+            ? PendingElevationTrayToolTip
+            : DefaultTrayToolTip;
     }
 }
