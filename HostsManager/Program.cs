@@ -9,12 +9,16 @@ namespace HostsManager;
 
 sealed class Program
 {
+    public static bool StartInBackground { get; private set; }
+
     // Initialization code. Don't use any Avalonia, third-party APIs or any
     // SynchronizationContext-reliant code before AppMain is called: things aren't initialized
     // yet and stuff might break.
     [STAThread]
     public static void Main(string[] args)
     {
+        StartInBackground = args.Any(arg => string.Equals(arg, "--background", StringComparison.OrdinalIgnoreCase));
+
         if (NeedsElevation())
         {
             TryRestartElevated();

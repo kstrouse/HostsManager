@@ -21,6 +21,7 @@ public partial class MainWindowViewModel : ViewModelBase
 {
     private readonly ProfileStore profileStore;
     private readonly HostsFileService hostsFileService;
+    private readonly StartupRegistrationService startupRegistrationService;
     private readonly AzurePrivateDnsService azurePrivateDnsService;
     private readonly HttpClient httpClient;
     private readonly DispatcherTimer refreshTimer;
@@ -34,6 +35,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool systemHostsRefreshPulseRequested;
     private bool isInitializing;
     private bool isInitialized;
+    private bool isUpdatingRunAtStartup;
     private string lastAppliedSignature;
     private string lastAttemptedSignature;
     private string lastSavedSignature;
@@ -50,6 +52,9 @@ public partial class MainWindowViewModel : ViewModelBase
 
     [ObservableProperty]
     private bool minimizeToTrayOnClose = false;
+
+    [ObservableProperty]
+    private bool runAtStartup;
 
     [ObservableProperty]
     private AzureSubscriptionOption? selectedAzureSubscription;
@@ -89,6 +94,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public string HostsPath { get; }
     public bool CanLoadAzureSubscriptions => !IsAzureSubscriptionsLoading;
+    public bool CanConfigureRunAtStartup => startupRegistrationService.IsSupported;
     public bool CanRefreshAzureZones => !IsAzureZonesLoading &&
         SelectedProfile is not null &&
         SelectedProfile.SourceType == SourceType.Remote &&
@@ -134,6 +140,7 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         profileStore = new ProfileStore();
         hostsFileService = new HostsFileService();
+        startupRegistrationService = new StartupRegistrationService();
         httpClient = new HttpClient();
         azurePrivateDnsService = new AzurePrivateDnsService(httpClient);
         localSourceWatchers = new Dictionary<string, FileSystemWatcher>(StringComparer.OrdinalIgnoreCase);
@@ -170,6 +177,7 @@ public partial class MainWindowViewModel : ViewModelBase
             var loaded = await profileStore.LoadAsync();
             Profiles.Clear();
             MinimizeToTrayOnClose = loaded.MinimizeToTrayOnClose;
+            RunAtStartup = loaded.RunAtStartup;
 
             var systemSource = await BuildSystemHostsSourceAsync();
             Profiles.Add(systemSource);
@@ -180,6 +188,7 @@ public partial class MainWindowViewModel : ViewModelBase
             }
 
             SelectedProfile = Profiles.FirstOrDefault();
+            await EnsureRunAtStartupMatchesPreferenceAsync();
             lastSavedSignature = BuildPersistenceSignature();
 
             refreshTimer.Start();
@@ -1327,6 +1336,7 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         var builder = new StringBuilder();
         builder.Append("MinimizeToTrayOnClose=").Append(MinimizeToTrayOnClose).Append('\n');
+        builder.Append("RunAtStartup=").Append(RunAtStartup).Append('\n');
 
         foreach (var source in GetPersistedSources())
         {
@@ -1357,6 +1367,16 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         _ = PersistSourcesIfChangedAsync();
+    }
+
+    partial void OnRunAtStartupChanged(bool value)
+    {
+        if (isInitializing || isUpdatingRunAtStartup)
+        {
+            return;
+        }
+
+        _ = ApplyRunAtStartupPreferenceAsync(value);
     }
 
     partial void OnSelectedProfileChanged(HostProfile? value)
@@ -1498,8 +1518,50 @@ public partial class MainWindowViewModel : ViewModelBase
         return profileStore.SaveAsync(new AppConfig
         {
             MinimizeToTrayOnClose = MinimizeToTrayOnClose,
+            RunAtStartup = RunAtStartup,
             Profiles = GetPersistedSources().ToList()
         });
+    }
+
+    private async Task EnsureRunAtStartupMatchesPreferenceAsync()
+    {
+        if (!startupRegistrationService.IsSupported)
+        {
+            return;
+        }
+
+        try
+        {
+            await startupRegistrationService.SetEnabledAsync(RunAtStartup);
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Startup option failed: {ex.Message}";
+        }
+    }
+
+    private async Task ApplyRunAtStartupPreferenceAsync(bool value)
+    {
+        if (!startupRegistrationService.IsSupported)
+        {
+            return;
+        }
+
+        try
+        {
+            await startupRegistrationService.SetEnabledAsync(value);
+            await PersistSourcesIfChangedAsync();
+            StatusMessage = value
+                ? "Startup enabled. Hosts Manager will launch elevated at Windows sign-in."
+                : "Startup disabled.";
+        }
+        catch (Exception ex)
+        {
+            isUpdatingRunAtStartup = true;
+            RunAtStartup = !value;
+            isUpdatingRunAtStartup = false;
+            StatusMessage = $"Startup option failed: {ex.Message}";
+        }
     }
 
     private IEnumerable<HostProfile> GetManagedSources()

@@ -37,6 +37,14 @@ public partial class App : Application
 
             desktop.MainWindow = mainWindow;
             ConfigureTray(desktop);
+
+            if (Program.StartInBackground)
+            {
+                mainWindow.Opened += (_, _) =>
+                {
+                    mainWindow.Hide();
+                };
+            }
         }
 
         base.OnFrameworkInitializationCompleted();
