@@ -67,20 +67,20 @@ You can import/use this file directly in SwitchHosts.
 
 This workspace now also includes a cross-platform desktop hosts manager app written in C# with Avalonia:
 
-- Project: `HostsManager/HostsManager.csproj`
+- Project: `src/HostsManager.Desktop/HostsManager.Desktop.csproj`
 - Framework: `net10.0`
 - Platforms: Windows, macOS, Linux
 
 ### Run
 
 ```powershell
-dotnet run --project .\HostsManager\HostsManager.csproj
+dotnet run --project .\src\HostsManager.Desktop\HostsManager.Desktop.csproj
 ```
 
 ### Build
 
 ```powershell
-dotnet build .\HostsManager\HostsManager.csproj
+dotnet build .\src\HostsManager.Desktop\HostsManager.Desktop.csproj
 ```
 
 ### Self-contained folder publish

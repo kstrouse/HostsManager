@@ -6,7 +6,8 @@
   </Configurations>
   <Folder Name="/src/" />
   <Folder Name="/test/">
-    <Project Path="test/HostsManager.Tests/HostsManager.Tests.csproj" />
+    <Project Path="test/HostsManager.Desktop.Tests/HostsManager.Desktop.Tests.csproj" />
   </Folder>
-  <Project Path="src/HostsManager/HostsManager.csproj" />
+  <Project Path="src/HostsManager.Desktop/HostsManager.Desktop.csproj" />
 </Solution>
+
