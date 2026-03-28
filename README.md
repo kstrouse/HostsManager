@@ -83,6 +83,20 @@ dotnet run --project .\HostsManager\HostsManager.csproj
 dotnet build .\HostsManager\HostsManager.csproj
 ```
 
+### Self-contained single-file publish
+
+Build quick-share self-contained single-file artifacts for Windows and macOS:
+
+```powershell
+.\Publish-SelfContained.ps1
+```
+
+Outputs:
+
+- `artifacts/publish/win-x64`
+- `artifacts/publish/osx-x64`
+- `artifacts/publish/osx-arm64`
+
 ### What it does
 
 - Manage multiple hosts sources (create/delete/edit/enable)
