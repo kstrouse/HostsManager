@@ -1,0 +1,17 @@
+# Build outputs
+**/bin/
+**/obj/
+
+# User-specific IDE files
+*.user
+*.rsuser
+*.suo
+
+# Logs and temporary files
+*.log
+*.tmp
+*.temp
+
+# OS-generated files
+.DS_Store
+Thumbs.db
