@@ -1229,6 +1229,14 @@ public partial class MainWindowViewModel : ViewModelBase
                 }
 
                 var signature = BuildManagedSignature();
+                if (!NeedsElevatedApply())
+                {
+                    lastAppliedSignature = signature;
+                    lastAttemptedSignature = signature;
+                    HasPendingElevatedHostsUpdate = false;
+                    continue;
+                }
+
                 if (string.Equals(signature, lastAttemptedSignature, StringComparison.Ordinal))
                 {
                     continue;

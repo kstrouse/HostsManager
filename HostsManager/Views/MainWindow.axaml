@@ -106,8 +106,27 @@
                           ShowsPreview="True" />
 
             <Border Classes="panel" Grid.Column="2" Padding="12">
-                <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*" RowSpacing="8">
-                    <Grid Grid.Row="0" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
+                <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*" RowSpacing="8">
+                    <Border Grid.Row="0"
+                            IsVisible="{Binding HasPendingElevatedHostsUpdate}"
+                            Background="#3A2414"
+                            BorderBrush="#7A4A1F"
+                            BorderThickness="1"
+                            CornerRadius="6"
+                            Padding="10,8">
+                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                            <TextBlock Grid.Column="0"
+                                       Text="Pending hosts changes need administrator approval."
+                                       TextWrapping="Wrap"
+                                       VerticalAlignment="Center"
+                                       Foreground="#FFD8A8" />
+                            <Button Grid.Column="1"
+                                    Content="Apply Now"
+                                    Command="{Binding ApplyToSystemHostsCommand}" />
+                        </Grid>
+                    </Border>
+
+                    <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
                         <TextBlock Text="Source Editor" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
                         <Button Grid.Column="1" Name="SaveSelectedSourceButton" Content="Save" Click="SaveSelectedSourceClick" />
                         <TextBlock Grid.Column="2"
@@ -119,7 +138,7 @@
                                    VerticalAlignment="Center" />
                     </Grid>
 
-                    <StackPanel Grid.Row="1" Spacing="8">
+                    <StackPanel Grid.Row="2" Spacing="8">
                         <StackPanel Spacing="4">
                             <TextBlock Classes="label" Text="Name" />
                             <TextBox IsReadOnly="{Binding IsSelectedSourceReadOnly}" Text="{Binding SelectedProfile.Name, Mode=TwoWay}" Watermark="Source name" />
@@ -143,7 +162,7 @@
                                    Text="Disabled by default for safety. Enable only when you need to edit non-managed records." />
                     </StackPanel>
 
-                    <Border Grid.Row="2" Classes="panel" Padding="10" IsVisible="{Binding IsLocalSelected}">
+                    <Border Grid.Row="3" Classes="panel" Padding="10" IsVisible="{Binding IsLocalSelected}">
                         <StackPanel Spacing="8">
                             <TextBlock Classes="label" Text="Local Source" />
                             <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
@@ -157,7 +176,7 @@
                         </StackPanel>
                     </Border>
 
-                    <Border Grid.Row="3" Classes="panel" Padding="10" IsVisible="{Binding IsRemoteSelected}">
+                    <Border Grid.Row="4" Classes="panel" Padding="10" IsVisible="{Binding IsRemoteSelected}">
                         <StackPanel Spacing="8">
                             <TextBlock Classes="label" Text="Remote Source" />
 
@@ -284,9 +303,9 @@
                         </StackPanel>
                     </Border>
 
-                    <TextBlock Grid.Row="4" Classes="label" Text="Hosts Entries" />
+                    <TextBlock Grid.Row="5" Classes="label" Text="Hosts Entries" />
 
-                    <Border Grid.Row="5" BorderBrush="#2F3742" BorderThickness="1" CornerRadius="6" Background="#141A22" Padding="2">
+                    <Border Grid.Row="6" BorderBrush="#2F3742" BorderThickness="1" CornerRadius="6" Background="#141A22" Padding="2">
                         <ae:TextEditor Name="HostsEntriesEditor"
                                        IsReadOnly="{Binding IsSelectedEntriesReadOnly}"
                                        ShowLineNumbers="True"

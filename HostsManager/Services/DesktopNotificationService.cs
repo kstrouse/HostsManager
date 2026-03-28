@@ -8,6 +8,8 @@ namespace HostsManager.Services;
 
 public class DesktopNotificationService
 {
+    public const string ShowQuickToggleEventName = @"Local\HostsManager.ShowQuickToggle";
+
     public void ShowPendingApplyNotification()
     {
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
@@ -34,8 +36,18 @@ $notifyIcon.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon('{escapedExecuta
 $notifyIcon.Visible = $true
 $notifyIcon.BalloonTipTitle = 'Hosts Manager'
 $notifyIcon.BalloonTipText = 'Hosts changes are pending. Click Apply in Hosts Manager to approve and update the hosts file.'
+$signal = New-Object System.Threading.AutoResetEvent($false)
+$notifyIcon.add_BalloonTipClicked({{
+    try {{
+        $eventHandle = [System.Threading.EventWaitHandle]::OpenExisting('{ShowQuickToggleEventName}')
+        $eventHandle.Set() | Out-Null
+        $eventHandle.Dispose()
+    }} catch {{
+    }}
+    $signal.Set() | Out-Null
+}})
 $notifyIcon.ShowBalloonTip(5000)
-Start-Sleep -Seconds 6
+$signal.WaitOne(6000) | Out-Null
 $notifyIcon.Dispose()
 ";
 

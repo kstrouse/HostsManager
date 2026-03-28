@@ -7,7 +7,9 @@ using System;
 using System.ComponentModel;
 using System.Linq;
 using System.Runtime.InteropServices;
+using System.Threading;
 using Avalonia.Markup.Xaml;
+using Avalonia.Threading;
 using HostsManager.Services;
 using HostsManager.ViewModels;
 using HostsManager.Views;
@@ -24,6 +26,8 @@ public partial class App : Application
     private IClassicDesktopStyleApplicationLifetime? desktopLifetime;
     private MainWindowViewModel? viewModel;
     private readonly DesktopNotificationService desktopNotificationService = new();
+    private EventWaitHandle? showQuickToggleEvent;
+    private RegisteredWaitHandle? showQuickToggleRegisteredWait;
 
     public override void Initialize()
     {
@@ -48,6 +52,7 @@ public partial class App : Application
 
             desktop.MainWindow = mainWindow;
             ConfigureTray(desktop);
+            RegisterQuickToggleActivationSignal(desktop);
         }
 
         base.OnFrameworkInitializationCompleted();
@@ -131,6 +136,8 @@ public partial class App : Application
                 viewModel.PropertyChanged -= OnViewModelPropertyChanged;
             }
 
+            showQuickToggleRegisteredWait?.Unregister(null);
+            showQuickToggleEvent?.Dispose();
             quickToggleWindow?.Close();
             trayIcon?.Dispose();
         };
@@ -210,7 +217,7 @@ public partial class App : Application
         if (e.PropertyName == nameof(MainWindowViewModel.HasPendingElevatedHostsUpdate))
         {
             UpdateTrayToolTip();
-            if (viewModel?.HasPendingElevatedHostsUpdate == true)
+            if (viewModel?.HasPendingElevatedHostsUpdate == true && !IsMainEditorForeground())
             {
                 desktopNotificationService.ShowPendingApplyNotification();
             }
@@ -227,5 +234,37 @@ public partial class App : Application
         trayIcon.ToolTipText = viewModel?.HasPendingElevatedHostsUpdate == true
             ? PendingElevationTrayToolTip
             : DefaultTrayToolTip;
+    }
+
+    private void RegisterQuickToggleActivationSignal(IClassicDesktopStyleApplicationLifetime desktop)
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            return;
+        }
+
+        showQuickToggleEvent = new EventWaitHandle(
+            initialState: false,
+            EventResetMode.AutoReset,
+            DesktopNotificationService.ShowQuickToggleEventName);
+
+        showQuickToggleRegisteredWait = ThreadPool.RegisterWaitForSingleObject(
+            showQuickToggleEvent,
+            (_, _) => Dispatcher.UIThread.Post(ShowQuickToggle),
+            null,
+            Timeout.Infinite,
+            executeOnlyOnce: false);
+    }
+
+    private bool IsMainEditorForeground()
+    {
+        if (mainWindow is null)
+        {
+            return false;
+        }
+
+        return mainWindow.IsVisible &&
+               mainWindow.WindowState != WindowState.Minimized &&
+               mainWindow.IsActive;
     }
 }

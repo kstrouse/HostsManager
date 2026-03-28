@@ -42,7 +42,7 @@
     </Window.Styles>
 
     <Grid Margin="12" RowDefinitions="Auto,Auto,*,Auto" RowSpacing="10">
-        <TextBlock Grid.Row="0" Text="Quick Source Toggle" FontSize="15" FontWeight="SemiBold" />
+        <TextBlock Grid.Row="0" Text="Hosts Manager: Quick Source Toggle" FontSize="15" FontWeight="SemiBold" />
 
         <Border Grid.Row="1"
                 IsVisible="{Binding HasPendingElevatedHostsUpdate}"
