@@ -202,7 +202,23 @@
                                         <CheckBox IsChecked="{Binding SelectedProfile.AutoRefreshFromRemote, Mode=TwoWay}" VerticalAlignment="Center" />
                                     </StackPanel>
 
-                                    <Button Classes="action" Content="Sync Now" Command="{Binding ReadSelectedRemoteHostsCommand}" />
+                                    <Button Classes="action" Command="{Binding ReadSelectedRemoteHostsCommand}">
+                                        <Grid ColumnDefinitions="Auto,Auto" ColumnSpacing="8">
+                                            <ProgressBar Grid.Column="0"
+                                                         Width="18"
+                                                         Height="6"
+                                                         IsIndeterminate="True"
+                                                         IsVisible="{Binding IsSelectedRemoteSyncRunning}" />
+                                            <TextBlock Grid.Column="1"
+                                                       VerticalAlignment="Center"
+                                                       Text="Syncing ..."
+                                                       IsVisible="{Binding IsSelectedRemoteSyncRunning}" />
+                                            <TextBlock Grid.ColumnSpan="2"
+                                                       VerticalAlignment="Center"
+                                                       Text="Sync Now"
+                                                       IsVisible="{Binding IsSelectedRemoteSyncIdle}" />
+                                        </Grid>
+                                    </Button>
                                     <TextBlock Opacity="0.72" Text="{Binding SelectedProfile.LastSyncedAtLocalDisplay, StringFormat=Last sync: {0}}" />
                                 </StackPanel>
 
@@ -244,7 +260,23 @@
                                 <TextBox Width="70" Text="{Binding SelectedProfile.RefreshIntervalMinutes, Mode=TwoWay}" />
                                 <TextBlock Classes="label" VerticalAlignment="Center" Text="Auto Sync" />
                                 <CheckBox IsChecked="{Binding SelectedProfile.AutoRefreshFromRemote, Mode=TwoWay}" VerticalAlignment="Center" />
-                                <Button Classes="action" Content="Sync Now" Command="{Binding ReadSelectedRemoteHostsCommand}" />
+                                <Button Classes="action" Command="{Binding ReadSelectedRemoteHostsCommand}">
+                                    <Grid ColumnDefinitions="Auto,Auto" ColumnSpacing="8">
+                                        <ProgressBar Grid.Column="0"
+                                                     Width="18"
+                                                     Height="6"
+                                                     IsIndeterminate="True"
+                                                     IsVisible="{Binding IsSelectedRemoteSyncRunning}" />
+                                        <TextBlock Grid.Column="1"
+                                                   VerticalAlignment="Center"
+                                                   Text="Syncing ..."
+                                                   IsVisible="{Binding IsSelectedRemoteSyncRunning}" />
+                                        <TextBlock Grid.ColumnSpan="2"
+                                                   VerticalAlignment="Center"
+                                                   Text="Sync Now"
+                                                   IsVisible="{Binding IsSelectedRemoteSyncIdle}" />
+                                    </Grid>
+                                </Button>
                             </StackPanel>
                             <TextBlock Opacity="0.72"
                                        IsVisible="{Binding IsHttpRemoteSelected}"

@@ -6,6 +6,7 @@ using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading.Tasks;
 using Avalonia.Threading;
@@ -31,6 +32,8 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool reconcileRequested;
     private bool localSourcesDirty;
     private bool systemHostsRefreshPulseRequested;
+    private bool isInitializing;
+    private bool isInitialized;
     private string lastAppliedSignature;
     private string lastAttemptedSignature;
     private string lastSavedSignature;
@@ -63,6 +66,11 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool isSystemHostsEditingEnabled;
 
     [ObservableProperty]
+    [NotifyPropertyChangedFor(nameof(IsSelectedRemoteSyncIdle))]
+    [NotifyCanExecuteChangedFor(nameof(ReadSelectedRemoteHostsCommand))]
+    private bool isSelectedRemoteSyncRunning;
+
+    [ObservableProperty]
     private bool selectedSourceChangedExternally;
 
     [ObservableProperty]
@@ -87,6 +95,7 @@ public partial class MainWindowViewModel : ViewModelBase
         SelectedProfile.RemoteTransport == RemoteTransport.AzurePrivateDns &&
         !string.IsNullOrWhiteSpace(SelectedProfile.AzureSubscriptionId);
     public bool IsSelectedSourceReadOnly => SelectedProfile?.IsReadOnly == true;
+    public bool IsSelectedRemoteSyncIdle => !IsSelectedRemoteSyncRunning;
     public bool IsSelectedEntriesReadOnly => SelectedProfile switch
     {
         null => true,
@@ -150,6 +159,12 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public async Task InitializeAsync()
     {
+        if (isInitialized || isInitializing)
+        {
+            return;
+        }
+
+        isInitializing = true;
         try
         {
             var loaded = await profileStore.LoadAsync();
@@ -173,10 +188,15 @@ public partial class MainWindowViewModel : ViewModelBase
             await RunBackgroundManagementTickAsync();
 
             StatusMessage = $"Loaded {Profiles.Count} source(s).";
+            isInitialized = true;
         }
         catch (Exception ex)
         {
             StatusMessage = $"Load failed: {ex.Message}";
+        }
+        finally
+        {
+            isInitializing = false;
         }
     }
 
@@ -311,7 +331,7 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         try
         {
-            await hostsFileService.ApplySourcesAsync(Profiles);
+            await hostsFileService.ApplySourcesAsync(Profiles, allowPrivilegePrompt: true);
             await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: false);
             var signature = BuildManagedSignature();
             lastAppliedSignature = signature;
@@ -320,7 +340,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
         catch (UnauthorizedAccessException)
         {
-            StatusMessage = "Permission denied. Run with elevated privileges to modify hosts file.";
+            StatusMessage = GetHostsPermissionDeniedMessage(forBackgroundApply: false);
         }
         catch (Exception ex)
         {
@@ -333,13 +353,13 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         try
         {
-            await hostsFileService.RestoreBackupAsync();
+            await hostsFileService.RestoreBackupAsync(allowPrivilegePrompt: true);
             await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: false);
             StatusMessage = "Hosts file restored from backup.";
         }
         catch (UnauthorizedAccessException)
         {
-            StatusMessage = "Permission denied. Run with elevated privileges to modify hosts file.";
+            StatusMessage = GetHostsPermissionDeniedMessage(forBackgroundApply: false);
         }
         catch (Exception ex)
         {
@@ -402,7 +422,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    [RelayCommand]
+    [RelayCommand(CanExecute = nameof(CanReadSelectedRemoteHosts))]
     private async Task SyncFromUrlAsync()
     {
         if (SelectedProfile is null)
@@ -410,17 +430,25 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        var synced = await SyncProfileFromUrlAsync(SelectedProfile);
-        if (synced)
+        IsSelectedRemoteSyncRunning = true;
+        try
         {
-            await SaveConfigurationAsync();
-            OnPropertyChanged(nameof(SelectedProfile));
-            await RunBackgroundManagementTickAsync();
-            StatusMessage = "Synced selected remote source.";
-            return;
-        }
+            var synced = await SyncProfileFromUrlAsync(SelectedProfile);
+            if (synced)
+            {
+                await SaveConfigurationAsync();
+                OnPropertyChanged(nameof(SelectedProfile));
+                await RunBackgroundManagementTickAsync();
+                StatusMessage = "Synced selected remote source.";
+                return;
+            }
 
-        StatusMessage = "Sync skipped. Configure a valid remote source first.";
+            StatusMessage = "Sync skipped. Configure a valid remote source first.";
+        }
+        finally
+        {
+            IsSelectedRemoteSyncRunning = false;
+        }
     }
 
     [RelayCommand]
@@ -428,6 +456,9 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         await SyncFromUrlAsync();
     }
+
+    private bool CanReadSelectedRemoteHosts() =>
+        SelectedProfile is { SourceType: SourceType.Remote } && !IsSelectedRemoteSyncRunning;
 
     [RelayCommand]
     private async Task SyncAllFromUrlAsync()
@@ -613,12 +644,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 return;
             }
 
-            Process.Start(new ProcessStartInfo
-            {
-                FileName = "explorer.exe",
-                Arguments = $"\"{folder}\"",
-                UseShellExecute = true
-            });
+            Process.Start(BuildOpenFolderStartInfo(folder));
         }
         catch (Exception ex)
         {
@@ -634,7 +660,7 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         try
         {
-            await hostsFileService.SaveRawHostsFileAsync(profile.Entries ?? string.Empty);
+            await hostsFileService.SaveRawHostsFileAsync(profile.Entries ?? string.Empty, allowPrivilegePrompt: true);
             await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: false);
             localSourcesDirty = true;
             IsSystemHostsEditingEnabled = false;
@@ -643,7 +669,7 @@ public partial class MainWindowViewModel : ViewModelBase
         }
         catch (UnauthorizedAccessException)
         {
-            StatusMessage = "Permission denied. Run with elevated privileges to modify hosts file.";
+            StatusMessage = GetHostsPermissionDeniedMessage(forBackgroundApply: false);
         }
         catch (Exception ex)
         {
@@ -1142,7 +1168,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 catch (UnauthorizedAccessException)
                 {
                     lastAttemptedSignature = signature;
-                    StatusMessage = "Background manager needs elevated privileges to update hosts file.";
+                    StatusMessage = GetHostsPermissionDeniedMessage(forBackgroundApply: true);
                 }
                 catch (Exception ex)
                 {
@@ -1325,6 +1351,11 @@ public partial class MainWindowViewModel : ViewModelBase
 
     partial void OnMinimizeToTrayOnCloseChanged(bool value)
     {
+        if (isInitializing)
+        {
+            return;
+        }
+
         _ = PersistSourcesIfChangedAsync();
     }
 
@@ -1353,6 +1384,7 @@ public partial class MainWindowViewModel : ViewModelBase
         ReloadLocalSourceCommand.NotifyCanExecuteChanged();
         SaveEntriesToLocalCommand.NotifyCanExecuteChanged();
         OpenSelectedLocalFolderCommand.NotifyCanExecuteChanged();
+        ReadSelectedRemoteHostsCommand.NotifyCanExecuteChanged();
         DeleteProfileCommand.NotifyCanExecuteChanged();
     }
 
@@ -1473,6 +1505,50 @@ public partial class MainWindowViewModel : ViewModelBase
     private IEnumerable<HostProfile> GetManagedSources()
     {
         return Profiles.Where(source => !source.IsReadOnly);
+    }
+
+    private static ProcessStartInfo BuildOpenFolderStartInfo(string folder)
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+        {
+            return new ProcessStartInfo
+            {
+                FileName = "explorer.exe",
+                Arguments = $"\"{folder}\"",
+                UseShellExecute = true
+            };
+        }
+
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            return new ProcessStartInfo
+            {
+                FileName = "open",
+                Arguments = $"\"{folder}\"",
+                UseShellExecute = false
+            };
+        }
+
+        return new ProcessStartInfo
+        {
+            FileName = "xdg-open",
+            Arguments = $"\"{folder}\"",
+            UseShellExecute = false
+        };
+    }
+
+    private static string GetHostsPermissionDeniedMessage(bool forBackgroundApply)
+    {
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+        {
+            return forBackgroundApply
+                ? "Background manager skipped hosts-file updates. Use Apply Hosts Now and approve the macOS admin prompt."
+                : "Administrative access is required to modify /etc/hosts on macOS. Approve the macOS admin prompt and try again.";
+        }
+
+        return forBackgroundApply
+            ? "Background manager needs elevated privileges to update hosts file."
+            : "Permission denied. Run with elevated privileges to modify hosts file.";
     }
 
     private static string GetRemoteTransportDisplay(RemoteTransport remoteTransport)

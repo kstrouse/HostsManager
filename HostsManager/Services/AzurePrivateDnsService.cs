@@ -23,10 +23,7 @@ public class AzurePrivateDnsService
     {
         _ = httpClient;
 
-        var credential = new DefaultAzureCredential(new DefaultAzureCredentialOptions
-        {
-            ExcludeAzureCliCredential = true
-        });
+        var credential = new DefaultAzureCredential();
 
         armClient = new ArmClient(credential);
     }

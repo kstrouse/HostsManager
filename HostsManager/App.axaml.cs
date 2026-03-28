@@ -5,6 +5,7 @@ using Avalonia.Data.Core;
 using Avalonia.Data.Core.Plugins;
 using System;
 using System.Linq;
+using System.Runtime.InteropServices;
 using Avalonia.Markup.Xaml;
 using HostsManager.ViewModels;
 using HostsManager.Views;
@@ -163,7 +164,9 @@ public partial class App : Application
 
         var workingArea = screen.WorkingArea;
         var x = workingArea.X + Math.Max(margin, workingArea.Width - width - margin);
-        var y = workingArea.Y + Math.Max(margin, workingArea.Height - height - margin);
+        var y = RuntimeInformation.IsOSPlatform(OSPlatform.OSX)
+            ? workingArea.Y + margin
+            : workingArea.Y + Math.Max(margin, workingArea.Height - height - margin);
 
         quickToggleWindow.Position = new PixelPoint(x, y);
     }

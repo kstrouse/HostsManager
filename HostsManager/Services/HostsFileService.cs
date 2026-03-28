@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -38,7 +39,7 @@ public class HostsFileService
         return Path.Combine(appDataDir, "hosts.backup");
     }
 
-    public async Task ApplySourcesAsync(IEnumerable<HostProfile> sources, CancellationToken cancellationToken = default)
+    public async Task ApplySourcesAsync(IEnumerable<HostProfile> sources, bool allowPrivilegePrompt = false, CancellationToken cancellationToken = default)
     {
         var hostsPath = GetHostsFilePath();
         var backupPath = GetBackupFilePath();
@@ -57,10 +58,10 @@ public class HostsFileService
             ? cleaned.TrimEnd() + Environment.NewLine
             : cleaned.TrimEnd() + Environment.NewLine + Environment.NewLine + managedBlock + Environment.NewLine;
 
-        await File.WriteAllTextAsync(hostsPath, output, new UTF8Encoding(false), cancellationToken);
+        await WriteHostsFileAsync(hostsPath, output, allowPrivilegePrompt, cancellationToken);
     }
 
-    public async Task RestoreBackupAsync(CancellationToken cancellationToken = default)
+    public async Task RestoreBackupAsync(bool allowPrivilegePrompt = false, CancellationToken cancellationToken = default)
     {
         var hostsPath = GetHostsFilePath();
         var backupPath = GetBackupFilePath();
@@ -71,10 +72,10 @@ public class HostsFileService
         }
 
         var backupText = await File.ReadAllTextAsync(backupPath, cancellationToken);
-        await File.WriteAllTextAsync(hostsPath, backupText, new UTF8Encoding(false), cancellationToken);
+        await WriteHostsFileAsync(hostsPath, backupText, allowPrivilegePrompt, cancellationToken);
     }
 
-    public async Task SaveRawHostsFileAsync(string content, CancellationToken cancellationToken = default)
+    public async Task SaveRawHostsFileAsync(string content, bool allowPrivilegePrompt = false, CancellationToken cancellationToken = default)
     {
         var hostsPath = GetHostsFilePath();
         var backupPath = GetBackupFilePath();
@@ -85,7 +86,87 @@ public class HostsFileService
             await File.WriteAllTextAsync(backupPath, original, new UTF8Encoding(false), cancellationToken);
         }
 
-        await File.WriteAllTextAsync(hostsPath, content ?? string.Empty, new UTF8Encoding(false), cancellationToken);
+        await WriteHostsFileAsync(hostsPath, content ?? string.Empty, allowPrivilegePrompt, cancellationToken);
+    }
+
+    private static async Task WriteHostsFileAsync(string hostsPath, string content, bool allowPrivilegePrompt, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await File.WriteAllTextAsync(hostsPath, content, new UTF8Encoding(false), cancellationToken);
+        }
+        catch (Exception ex) when (allowPrivilegePrompt && RuntimeInformation.IsOSPlatform(OSPlatform.OSX) && NeedsMacPrivilegePrompt(ex))
+        {
+            await WriteHostsFileWithMacPrivilegesAsync(hostsPath, content, cancellationToken);
+        }
+    }
+
+    private static bool NeedsMacPrivilegePrompt(Exception ex) =>
+        ex is UnauthorizedAccessException ||
+        ex is IOException ||
+        ex is System.Security.SecurityException;
+
+    private static async Task WriteHostsFileWithMacPrivilegesAsync(string hostsPath, string content, CancellationToken cancellationToken)
+    {
+        var tempFilePath = Path.GetTempFileName();
+
+        try
+        {
+            await File.WriteAllTextAsync(tempFilePath, content, new UTF8Encoding(false), cancellationToken);
+
+            var command = $"/usr/bin/install -m 644 {ShellQuote(tempFilePath)} {ShellQuote(hostsPath)}";
+            var appleScript = $"do shell script \"{EscapeAppleScriptString(command)}\" with administrator privileges";
+
+            using var process = new Process
+            {
+                StartInfo = new ProcessStartInfo
+                {
+                    FileName = "/usr/bin/osascript",
+                    UseShellExecute = false,
+                    RedirectStandardError = true,
+                    RedirectStandardOutput = true
+                }
+            };
+
+            process.StartInfo.ArgumentList.Add("-e");
+            process.StartInfo.ArgumentList.Add(appleScript);
+
+            process.Start();
+            await process.WaitForExitAsync(cancellationToken);
+
+            if (process.ExitCode != 0)
+            {
+                var error = await process.StandardError.ReadToEndAsync(cancellationToken);
+                if (string.IsNullOrWhiteSpace(error))
+                {
+                    error = await process.StandardOutput.ReadToEndAsync(cancellationToken);
+                }
+
+                throw new UnauthorizedAccessException(string.IsNullOrWhiteSpace(error)
+                    ? "Administrative authorization was canceled or failed."
+                    : error.Trim());
+            }
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(tempFilePath);
+            }
+            catch
+            {
+            }
+        }
+    }
+
+    private static string ShellQuote(string value)
+    {
+        return $"'{value.Replace("'", "'\"'\"'")}'";
+    }
+
+    private static string EscapeAppleScriptString(string value)
+    {
+        return value.Replace("\\", "\\\\").Replace("\"", "\\\"");
     }
 
     private static string RemoveManagedBlock(string content)

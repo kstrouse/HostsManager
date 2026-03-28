@@ -18,6 +18,7 @@ public partial class MainWindow : Window
 {
     public bool CloseToTrayEnabled { get; set; }
     private MainWindowViewModel? currentViewModel;
+    private bool isInitialized;
     private TextEditor? hostsEntriesEditor;
     private Button? saveSelectedSourceButton;
     private readonly DispatcherTimer editorSyncTimer;
@@ -85,10 +86,11 @@ public partial class MainWindow : Window
 
         Opened += async (_, _) =>
         {
-            if (DataContext is MainWindowViewModel vm)
+            if (!isInitialized && DataContext is MainWindowViewModel vm)
             {
                 await vm.InitializeAsync();
                 SyncEditorFromSelectedProfile(vm);
+                isInitialized = true;
             }
         };
     }
