@@ -51,6 +51,16 @@ public partial class QuickToggleWindow : Window
         await vm.RequestImmediateReconcileAsync();
     }
 
+    private async void SyncRemoteSourceClick(object? sender, RoutedEventArgs e)
+    {
+        if (DataContext is not MainWindowViewModel vm || sender is not Control control)
+        {
+            return;
+        }
+
+        await vm.SyncRemoteSourceNowAsync(control.DataContext as HostProfile);
+    }
+
     private void OpenFullEditorClick(object? sender, RoutedEventArgs e)
     {
         Hide();

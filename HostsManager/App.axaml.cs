@@ -35,16 +35,13 @@ public partial class App : Application
                 DataContext = new MainWindowViewModel(),
             };
 
-            desktop.MainWindow = mainWindow;
-            ConfigureTray(desktop);
-
             if (Program.StartInBackground)
             {
-                mainWindow.Opened += (_, _) =>
-                {
-                    mainWindow.Hide();
-                };
+                mainWindow.ConfigureStartupHiddenToTray();
             }
+
+            desktop.MainWindow = mainWindow;
+            ConfigureTray(desktop);
         }
 
         base.OnFrameworkInitializationCompleted();

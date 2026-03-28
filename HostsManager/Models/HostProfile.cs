@@ -84,6 +84,9 @@ public partial class HostProfile : ObservableObject
         _ => SourceType.ToString()
     };
 
+    [JsonIgnore]
+    public bool IsRemoteSource => SourceType == SourceType.Remote;
+
     public string TransportDisplay => SourceType == SourceType.Remote
         ? GetRemoteTransportDisplay(RemoteTransport)
         : string.Empty;
@@ -104,6 +107,7 @@ public partial class HostProfile : ObservableObject
     {
         OnPropertyChanged(nameof(SourceTypeDisplay));
         OnPropertyChanged(nameof(TransportDisplay));
+        OnPropertyChanged(nameof(IsRemoteSource));
     }
 
     partial void OnRemoteTransportChanged(RemoteTransport value)

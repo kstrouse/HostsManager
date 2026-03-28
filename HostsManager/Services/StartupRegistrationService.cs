@@ -8,7 +8,7 @@ namespace HostsManager.Services;
 
 public class StartupRegistrationService
 {
-    private const string TaskName = "HostsManager Startup";
+    private const string TaskName = "Hosts Manager Startup";
 
     public bool IsSupported =>
         RuntimeInformation.IsOSPlatform(OSPlatform.Windows);

@@ -36,6 +36,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool isInitializing;
     private bool isInitialized;
     private bool isUpdatingRunAtStartup;
+    private string? quickSyncProfileId;
     private string lastAppliedSignature;
     private string lastAttemptedSignature;
     private string lastSavedSignature;
@@ -121,6 +122,7 @@ public partial class MainWindowViewModel : ViewModelBase
     public bool IsSystemSelected => SelectedProfile?.SourceType == SourceType.System;
     public bool IsLocalSelected => SelectedProfile?.SourceType == SourceType.Local;
     public bool IsRemoteSelected => SelectedProfile?.SourceType == SourceType.Remote;
+    public bool IsQuickSyncRunning => !string.IsNullOrWhiteSpace(quickSyncProfileId);
     public bool IsHttpRemoteSelected =>
         SelectedProfile?.SourceType == SourceType.Remote &&
         SelectedProfile.RemoteTransport is RemoteTransport.Http or RemoteTransport.Https;
@@ -960,6 +962,52 @@ public partial class MainWindowViewModel : ViewModelBase
         StatusMessage = synced
             ? $"Remote source synced on enable: {source.Name}"
             : $"Remote source enabled: {source.Name}";
+    }
+
+    public async Task SyncRemoteSourceNowAsync(HostProfile? source)
+    {
+        if (source is null || source.SourceType != SourceType.Remote)
+        {
+            return;
+        }
+
+        if (IsQuickSyncRunning)
+        {
+            StatusMessage = "A remote sync is already running.";
+            return;
+        }
+
+        quickSyncProfileId = source.Id;
+        try
+        {
+            var synced = await SyncProfileFromUrlAsync(source);
+            if (!CanSyncRemoteSource(source))
+            {
+                StatusMessage = "Sync skipped. Configure a valid remote source first.";
+                return;
+            }
+
+            await SaveConfigurationAsync();
+
+            if (ReferenceEquals(source, SelectedProfile))
+            {
+                OnPropertyChanged(nameof(SelectedProfile));
+            }
+
+            await RunBackgroundManagementTickAsync();
+            StatusMessage = synced
+                ? $"Synced remote source: {source.Name}"
+                : $"Remote source already up to date: {source.Name}";
+        }
+        catch (Exception ex)
+        {
+            StatusMessage = $"Remote sync failed: {ex.Message}";
+        }
+        finally
+        {
+            quickSyncProfileId = null;
+            OnPropertyChanged(nameof(IsQuickSyncRunning));
+        }
     }
 
     private static IReadOnlyCollection<string> ParseExcludedZones(string? input)

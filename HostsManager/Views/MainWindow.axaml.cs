@@ -19,6 +19,7 @@ public partial class MainWindow : Window
     public bool CloseToTrayEnabled { get; set; }
     private MainWindowViewModel? currentViewModel;
     private bool isInitialized;
+    private bool startHiddenToTray;
     private TextEditor? hostsEntriesEditor;
     private Button? saveSelectedSourceButton;
     private readonly DispatcherTimer editorSyncTimer;
@@ -92,7 +93,26 @@ public partial class MainWindow : Window
                 SyncEditorFromSelectedProfile(vm);
                 isInitialized = true;
             }
+
+            if (startHiddenToTray)
+            {
+                startHiddenToTray = false;
+                Hide();
+                ShowInTaskbar = true;
+                ShowActivated = true;
+                Opacity = 1;
+                WindowState = WindowState.Normal;
+            }
         };
+    }
+
+    public void ConfigureStartupHiddenToTray()
+    {
+        startHiddenToTray = true;
+        ShowInTaskbar = false;
+        ShowActivated = false;
+        Opacity = 0;
+        WindowState = WindowState.Minimized;
     }
 
     private void HostsEntriesEditorTextChanged(object? sender, EventArgs e)

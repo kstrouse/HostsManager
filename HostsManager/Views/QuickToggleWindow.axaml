@@ -2,6 +2,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:vm="using:HostsManager.ViewModels"
         x:Class="HostsManager.Views.QuickToggleWindow"
+        x:Name="RootWindow"
         x:DataType="vm:MainWindowViewModel"
         Title="Hosts Manager"
         Width="340"
@@ -15,6 +16,31 @@
         Topmost="True"
         WindowStartupLocation="Manual">
 
+    <Window.Styles>
+        <Style Selector="Button.iconAction">
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderBrush" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="CornerRadius" Value="14" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="Width" Value="28" />
+            <Setter Property="Height" Value="28" />
+            <Setter Property="Foreground" Value="#C9D1D9" />
+            <Setter Property="HorizontalContentAlignment" Value="Center" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.iconAction /template/ ContentPresenter">
+            <Setter Property="HorizontalAlignment" Value="Center" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style Selector="Button.iconAction:pointerover /template/ ContentPresenter">
+            <Setter Property="Opacity" Value="0.9" />
+        </Style>
+        <Style Selector="Button.iconAction:pressed /template/ ContentPresenter">
+            <Setter Property="Opacity" Value="0.7" />
+        </Style>
+    </Window.Styles>
+
     <Grid Margin="12" RowDefinitions="Auto,*,Auto" RowSpacing="10">
         <TextBlock Grid.Row="0" Text="Quick Source Toggle" FontSize="15" FontWeight="SemiBold" />
 
@@ -23,12 +49,21 @@
                 <ItemsControl ItemsSource="{Binding Profiles}">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
-                            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="8" Margin="2,4">
+                            <Grid ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8" Margin="2,4">
                                 <StackPanel Grid.Column="0" Spacing="1" VerticalAlignment="Center">
                                     <TextBlock Text="{Binding Name}" />
                                     <TextBlock Opacity="0.65" FontSize="11" Text="{Binding SourceTypeDisplay}" />
                                 </StackPanel>
-                                <ToggleSwitch Grid.Column="1"
+                                <Button Grid.Column="1"
+                                        Classes="iconAction"
+                                        VerticalAlignment="Center"
+                                        Content="↻"
+                                        FontSize="18"
+                                        FontWeight="SemiBold"
+                                        IsVisible="{Binding IsRemoteSource}"
+                                        ToolTip.Tip="Sync this remote source now"
+                                        Click="SyncRemoteSourceClick" />
+                                <ToggleSwitch Grid.Column="2"
                                               IsEnabled="{Binding CanToggleEnabled}"
                                               IsChecked="{Binding IsEnabled, Mode=TwoWay}"
                                               VerticalAlignment="Center"
