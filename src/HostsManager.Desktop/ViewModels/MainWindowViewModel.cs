@@ -7,6 +7,7 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -28,6 +29,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly IBackgroundManagementCoordinator backgroundManagementCoordinator;
     private readonly IHostsStateTracker hostsStateTracker;
     private readonly IRemoteSourceSyncService remoteSourceSyncService;
+    private readonly IRemoteSyncWorkflowService remoteSyncWorkflowService;
     private readonly IProfileSelectionService profileSelectionService;
     private readonly IStartupActionOrchestrationService startupActionOrchestrationService;
     private readonly IStartupRegistrationService startupRegistrationService;
@@ -162,6 +164,7 @@ public partial class MainWindowViewModel : ViewModelBase
             null,
             null,
             null,
+            null,
             null)
     {
     }
@@ -183,6 +186,7 @@ public partial class MainWindowViewModel : ViewModelBase
         IHostsStateTracker? hostsStateTracker = null,
         ISystemHostsWorkflowService? systemHostsWorkflowService = null,
         IRemoteSourceSyncService? remoteSourceSyncService = null,
+        IRemoteSyncWorkflowService? remoteSyncWorkflowService = null,
         IProfileSelectionService? profileSelectionService = null,
         IStartupActionOrchestrationService? startupActionOrchestrationService = null)
     {
@@ -206,6 +210,7 @@ public partial class MainWindowViewModel : ViewModelBase
         this.systemHostsWorkflowService = resolvedSystemHostsWorkflowService;
         var resolvedAzurePrivateDnsService = azurePrivateDnsService ?? new AzurePrivateDnsService(httpClient);
         this.remoteSourceSyncService = remoteSourceSyncService ?? new RemoteSourceSyncService(httpClient, resolvedAzurePrivateDnsService);
+        this.remoteSyncWorkflowService = remoteSyncWorkflowService ?? new RemoteSyncWorkflowService(this.remoteSourceSyncService);
         this.profileSelectionService = profileSelectionService ?? new ProfileSelectionService(this.remoteSourceSyncService);
         this.startupActionOrchestrationService = startupActionOrchestrationService ?? new StartupActionOrchestrationService(
             resolvedSystemHostsWorkflowService,
@@ -559,25 +564,13 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand(CanExecute = nameof(CanReadSelectedRemoteHosts))]
     private async Task SyncFromUrlAsync()
     {
-        if (SelectedProfile is null)
-        {
-            return;
-        }
-
         IsSelectedRemoteSyncRunning = true;
         try
         {
-            var synced = await SyncProfileFromUrlAsync(SelectedProfile);
-            if (synced)
-            {
-                await SaveConfigurationAsync();
-                OnPropertyChanged(nameof(SelectedProfile));
-                await backgroundManagementCoordinator.RunNowAsync();
-                StatusMessage = "Synced selected remote source.";
-                return;
-            }
-
-            StatusMessage = "Sync skipped. Configure a valid remote source first.";
+            var result = await remoteSyncWorkflowService.SyncSelectedSourceAsync(
+                SelectedProfile,
+                PrepareProfileForRemoteSyncAsync);
+            await ApplyRemoteSyncCommandResultAsync(result);
         }
         finally
         {
@@ -724,63 +717,16 @@ public partial class MainWindowViewModel : ViewModelBase
         isRefreshRunning = true;
         try
         {
-            var now = DateTimeOffset.UtcNow;
-            var syncedCount = 0;
-            var errorCount = 0;
-
-            foreach (var profile in Profiles)
-            {
-                if (profile.SourceType != SourceType.Remote)
+            var result = await remoteSyncWorkflowService.RefreshProfilesAsync(
+                new RemoteProfilesSyncRequest
                 {
-                    continue;
-                }
-
-                if (!CanSyncRemoteSource(profile))
-                {
-                    continue;
-                }
-
-                if (!forceAll && !remoteSourceSyncService.ShouldAutoRefresh(profile, now))
-                {
-                    continue;
-                }
-
-                try
-                {
-                    var synced = await SyncProfileFromUrlAsync(profile);
-                    if (synced)
-                    {
-                        syncedCount++;
-                    }
-                }
-                catch
-                {
-                    errorCount++;
-                }
-            }
-
-            if (syncedCount > 0)
-            {
-                await SaveConfigurationAsync();
-                OnPropertyChanged(nameof(SelectedProfile));
-                await backgroundManagementCoordinator.RunNowAsync();
-            }
-
-            if (userInitiated)
-            {
-                if (errorCount > 0)
-                {
-                    StatusMessage = $"URL sync completed with {syncedCount} update(s), {errorCount} error(s).";
-                }
-                else
-                {
-                    StatusMessage = $"Remote sync completed with {syncedCount} update(s).";
-                }
-            }
-            else if (syncedCount > 0)
-            {
-                StatusMessage = $"Auto-refresh synced {syncedCount} remote source(s).";
-            }
+                    Profiles = Profiles.ToList(),
+                    ForceAll = forceAll,
+                    UserInitiated = userInitiated,
+                    Now = DateTimeOffset.UtcNow
+                },
+                PrepareProfileForRemoteSyncAsync);
+            await ApplyRemoteProfilesSyncResultAsync(result);
         }
         finally
         {
@@ -788,40 +734,13 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    private async Task<bool> SyncProfileFromUrlAsync(HostProfile profile)
-    {
-        if (profile.RemoteTransport == RemoteTransport.AzurePrivateDns &&
-            ReferenceEquals(profile, SelectedProfile))
-        {
-            await RefreshAzureZonesForProfileAsync(profile, updateSelectedUi: true);
-        }
-
-        return await remoteSourceSyncService.SyncProfileAsync(profile);
-    }
-
-    private bool CanSyncRemoteSource(HostProfile source)
-    {
-        return remoteSourceSyncService.CanSyncRemoteSource(source);
-    }
-
     public async Task HandleRemoteSourceToggledAsync(HostProfile? source)
     {
-        if (source is null || source.SourceType != SourceType.Remote || !source.IsEnabled)
-        {
-            return;
-        }
-
-        var synced = await SyncProfileFromUrlAsync(source);
-        await SaveConfigurationAsync();
-
-        if (ReferenceEquals(source, SelectedProfile))
-        {
-            OnPropertyChanged(nameof(SelectedProfile));
-        }
-
-        StatusMessage = synced
-            ? $"Remote source synced on enable: {source.Name}"
-            : $"Remote source enabled: {source.Name}";
+        var result = await remoteSyncWorkflowService.HandleSourceEnabledAsync(
+            source,
+            SelectedProfile,
+            PrepareProfileForRemoteSyncAsync);
+        await ApplyRemoteSyncCommandResultAsync(result);
     }
 
     public async Task SyncRemoteSourceNowAsync(HostProfile? source)
@@ -840,24 +759,12 @@ public partial class MainWindowViewModel : ViewModelBase
         quickSyncProfileId = source.Id;
         try
         {
-            var synced = await SyncProfileFromUrlAsync(source);
-            if (!CanSyncRemoteSource(source))
-            {
-                StatusMessage = "Sync skipped. Configure a valid remote source first.";
-                return;
-            }
-
-            await SaveConfigurationAsync();
-
-            if (ReferenceEquals(source, SelectedProfile))
-            {
-                OnPropertyChanged(nameof(SelectedProfile));
-            }
-
-            await backgroundManagementCoordinator.RunNowAsync();
-            StatusMessage = synced
-                ? $"Synced remote source: {source.Name}"
-                : $"Remote source already up to date: {source.Name}";
+            var result = await remoteSyncWorkflowService.SyncSourceNowAsync(
+                source,
+                SelectedProfile,
+                isQuickSyncRunning: false,
+                PrepareProfileForRemoteSyncAsync);
+            await ApplyRemoteSyncCommandResultAsync(result);
         }
         catch (Exception ex)
         {
@@ -867,6 +774,61 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             quickSyncProfileId = null;
             OnPropertyChanged(nameof(IsQuickSyncRunning));
+        }
+    }
+
+    private async Task PrepareProfileForRemoteSyncAsync(HostProfile profile, CancellationToken cancellationToken)
+    {
+        if (profile.RemoteTransport == RemoteTransport.AzurePrivateDns &&
+            ReferenceEquals(profile, SelectedProfile))
+        {
+            await RefreshAzureZonesForProfileAsync(profile, updateSelectedUi: true);
+        }
+    }
+
+    private async Task ApplyRemoteProfilesSyncResultAsync(RemoteProfilesSyncResult result)
+    {
+        if (result.ShouldPersistConfiguration)
+        {
+            await SaveConfigurationAsync();
+        }
+
+        if (result.ShouldNotifySelectedProfileChanged)
+        {
+            OnPropertyChanged(nameof(SelectedProfile));
+        }
+
+        if (result.ShouldRunBackgroundManagement)
+        {
+            await backgroundManagementCoordinator.RunNowAsync();
+        }
+
+        if (!string.IsNullOrWhiteSpace(result.StatusMessage))
+        {
+            StatusMessage = result.StatusMessage;
+        }
+    }
+
+    private async Task ApplyRemoteSyncCommandResultAsync(RemoteSourceSyncCommandResult result)
+    {
+        if (result.ShouldPersistConfiguration)
+        {
+            await SaveConfigurationAsync();
+        }
+
+        if (result.ShouldNotifySelectedProfileChanged)
+        {
+            OnPropertyChanged(nameof(SelectedProfile));
+        }
+
+        if (result.ShouldRunBackgroundManagement)
+        {
+            await backgroundManagementCoordinator.RunNowAsync();
+        }
+
+        if (!string.IsNullOrWhiteSpace(result.StatusMessage))
+        {
+            StatusMessage = result.StatusMessage;
         }
     }
 

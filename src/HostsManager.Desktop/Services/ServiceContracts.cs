@@ -147,6 +147,32 @@ public interface IStartupActionOrchestrationService
         CancellationToken cancellationToken = default);
 }
 
+public interface IRemoteSyncWorkflowService
+{
+    Task<RemoteProfilesSyncResult> RefreshProfilesAsync(
+        RemoteProfilesSyncRequest request,
+        Func<HostProfile, CancellationToken, Task>? beforeSyncAsync = null,
+        CancellationToken cancellationToken = default);
+
+    Task<RemoteSourceSyncCommandResult> SyncSelectedSourceAsync(
+        HostProfile? selectedProfile,
+        Func<HostProfile, CancellationToken, Task>? beforeSyncAsync = null,
+        CancellationToken cancellationToken = default);
+
+    Task<RemoteSourceSyncCommandResult> HandleSourceEnabledAsync(
+        HostProfile? source,
+        HostProfile? selectedProfile,
+        Func<HostProfile, CancellationToken, Task>? beforeSyncAsync = null,
+        CancellationToken cancellationToken = default);
+
+    Task<RemoteSourceSyncCommandResult> SyncSourceNowAsync(
+        HostProfile? source,
+        HostProfile? selectedProfile,
+        bool isQuickSyncRunning,
+        Func<HostProfile, CancellationToken, Task>? beforeSyncAsync = null,
+        CancellationToken cancellationToken = default);
+}
+
 public interface IStartupRegistrationService
 {
     bool IsSupported { get; }
