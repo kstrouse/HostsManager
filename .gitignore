@@ -4,9 +4,16 @@
 artifacts/
 
 # User-specific IDE files
+.vs/
+.idea/
 *.user
 *.rsuser
 *.suo
+
+# Test and coverage outputs
+TestResults/
+*.coverage
+*.coveragexml
 
 # Logs and temporary files
 *.log

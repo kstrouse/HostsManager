@@ -1,80 +1,123 @@
-## Hosts Manager
+# Hosts Manager
 
-This is a cross-platform desktop hosts manager app written in C# with Avalonia:
+Hosts Manager is a desktop app for building and maintaining a managed `hosts` file from multiple sources.
 
-- Project: `src/HostsManager.Desktop/HostsManager.Desktop.csproj`
-- Framework: `net10.0`
-- Platforms: Windows, macOS, Linux
+It is written in C# on Avalonia and is intended for people who want a safer way to combine:
 
-### Run
+- local file-backed hosts sources
+- manually edited managed entries
+- remote HTTP/HTTPS hosts sources
+- Azure Private DNS zones
+
+The app keeps those sources organized, watches for external file changes, and can apply the enabled set into the system hosts file using managed markers.
+
+## Features
+
+- Multiple source types: system, local, and remote
+- Local source workflows:
+  create a new hosts file, add an existing file, rename it, re-create missing files, open the containing folder
+- Remote source workflows:
+  manual sync, sync-all, per-source auto-refresh intervals, Azure Private DNS import
+- Automatic background reconcile loop for config changes, local file changes, and managed hosts updates
+- Direct system-hosts editing mode with an explicit safety toggle
+- Backup and restore support for the system hosts file
+- Tray integration with show/apply/exit flows
+- Syntax highlighting and validation hints in the hosts editor
+
+## Platform Status
+
+- Windows: primary supported platform
+- macOS and Linux: code paths exist, but they are not verified to the same degree yet
+
+On Windows, the app runs normally without elevation and only requests administrator approval when a hosts-file update actually needs it.
+
+## Project Layout
+
+- App: [src/HostsManager.Desktop/HostsManager.Desktop.csproj](src/HostsManager.Desktop/HostsManager.Desktop.csproj)
+- Tests: [test/HostsManager.Desktop.Tests/HostsManager.Desktop.Tests.csproj](test/HostsManager.Desktop.Tests/HostsManager.Desktop.Tests.csproj)
+- Windows installer script: [installer/windows/HostsManager.iss](installer/windows/HostsManager.iss)
+- Sample local hosts file: [samplehosts/test-local.hosts](samplehosts/test-local.hosts)
+
+## Requirements
+
+- .NET 10 SDK
+- Windows for the installer build flow
+- Inno Setup 6 if you want to compile the Windows installer
+
+## Local Development
+
+Run the desktop app:
 
 ```powershell
 dotnet run --project .\src\HostsManager.Desktop\HostsManager.Desktop.csproj
 ```
 
-### Build
+Build the solution:
 
 ```powershell
-dotnet build .\src\HostsManager.Desktop\HostsManager.Desktop.csproj
+dotnet build HostsManager.slnx
 ```
 
-### Self-contained folder publish
+Run the test suite:
 
-Build self-contained app folders for Windows and macOS:
+```powershell
+dotnet test HostsManager.slnx
+```
+
+## Publishing
+
+Build self-contained publish folders:
 
 ```powershell
 .\Publish-SelfContained.ps1
 ```
 
-Outputs:
+Default outputs:
 
 - `artifacts/publish/win-x64`
 - `artifacts/publish/osx-x64`
 - `artifacts/publish/osx-arm64`
 
-### Windows Installer
-
-Build an installer-ready Windows publish and, if Inno Setup 6 is installed, compile a Windows installer:
+Build the Windows installer:
 
 ```powershell
 .\Build-WindowsInstaller.ps1 -Version 1.0.0
 ```
 
-Outputs:
+Default outputs:
 
-- Publish folder: `artifacts/publish/win-x64`
-- Installer: `artifacts/installer/HostsManager-1.0.0-Setup.exe`
+- publish folder: `artifacts/publish/win-x64`
+- installer: `artifacts/installer/HostsManager-1.0.0-Setup.exe`
 
-Requirements:
+If Inno Setup is not installed at `C:\Program Files (x86)\Inno Setup 6\ISCC.exe`, the script still prepares the publish output and stops before the installer compile step.
 
-- Inno Setup 6 installed at `C:\Program Files (x86)\Inno Setup 6\ISCC.exe`
+## How Hosts Updates Work
 
-### What it does
+Hosts Manager treats the system hosts file as a managed output.
 
-- Manage multiple hosts sources (create/delete/edit/enable)
-- Run continuously in the app background loop and manage the system hosts file automatically
-- Minimize to system tray when window is closed (app keeps running)
-- Provide tray menu actions: Show, Apply Hosts Now, Exit
-- Monitor known local source files for external changes and reload them automatically
-- Detect in-app source entry changes and automatically re-apply managed hosts entries
-- Hosts Entries editor includes syntax highlighting (comments, IPs, hostnames)
-- Local source workflow:
-	- Create a new local source by picking where to save a file
-	- Add an existing local file as a source
-	- Reload entries from local file, or save edited entries back to it
-- Remote source workflow:
-	- Create remote sources with protocol and location settings
-	- Sync selected remote source manually or sync all remote sources
-	- Auto-refresh remote sources on per-source minute intervals
-- Save sources to app config storage
-- Apply enabled sources into your system hosts file using managed markers
-- Create and restore a hosts backup
+- enabled sources are combined into a managed section
+- unmanaged content outside the managed markers is preserved during managed apply flows
+- the app keeps track of when background changes need administrator approval
+- if a watched local file changes on disk, the app can detect that and refresh the managed state
 
-### Privileges
+Direct system-hosts editing is available, but intentionally disabled by default for safety.
 
-Applying or restoring hosts requires elevated privileges:
+## Azure Private DNS
 
-- Windows:
-	- App starts normally and requests elevation only when a hosts-file update needs approval
-	- Run-at-startup registration is per-user and does not require startup-time elevation
-- macOS/Linux: run with `sudo` as needed
+Azure Private DNS support is intended for turning selected private DNS zones into hosts entries.
+
+- connect to Azure and load subscriptions
+- choose a subscription for a remote source
+- load available zones
+- exclude individual zones if needed
+- sync the generated entries into that remote source
+
+## Notes Before First Public Release
+
+- The app is currently versioned as `1.0.0` in the project file, but this repository should still be treated as an early public release until you have published binaries and validated the install/update path.
+- Windows is the main release target right now.
+- macOS and Linux support should be presented as experimental unless you validate those paths yourself.
+
+## License
+
+This project is licensed under the MIT License. See [LICENSE](LICENSE).
