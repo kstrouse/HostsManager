@@ -202,6 +202,22 @@ public interface ISystemHostsCommandService
         CancellationToken cancellationToken = default);
 }
 
+public interface IAzureProfileCommandService
+{
+    Task<AzureSubscriptionsLoadResult> LoadSubscriptionsAsync(
+        HostProfile? selectedProfile,
+        bool isSystemHostsEditingEnabled,
+        CancellationToken cancellationToken = default);
+
+    Task<AzureZonesLoadResult> RefreshZonesAsync(
+        HostProfile? selectedProfile,
+        CancellationToken cancellationToken = default);
+
+    Task<AzureZonesLoadResult> RefreshZonesForSelectionAsync(
+        HostProfile? selectedProfile,
+        CancellationToken cancellationToken = default);
+}
+
 public interface IStartupRegistrationService
 {
     bool IsSupported { get; }

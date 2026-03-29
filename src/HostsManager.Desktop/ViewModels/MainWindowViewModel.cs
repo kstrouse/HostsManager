@@ -33,6 +33,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly IRemoteSourceSyncService remoteSourceSyncService;
     private readonly IRemoteSyncWorkflowService remoteSyncWorkflowService;
     private readonly IProfileSelectionService profileSelectionService;
+    private readonly IAzureProfileCommandService azureProfileCommandService;
     private readonly IStartupActionOrchestrationService startupActionOrchestrationService;
     private readonly IStartupRegistrationService startupRegistrationService;
     private readonly ISystemHostsWorkflowService systemHostsWorkflowService;
@@ -169,6 +170,7 @@ public partial class MainWindowViewModel : ViewModelBase
             null,
             null,
             null,
+            null,
             null)
     {
     }
@@ -194,6 +196,7 @@ public partial class MainWindowViewModel : ViewModelBase
         IRemoteSourceSyncService? remoteSourceSyncService = null,
         IRemoteSyncWorkflowService? remoteSyncWorkflowService = null,
         IProfileSelectionService? profileSelectionService = null,
+        IAzureProfileCommandService? azureProfileCommandService = null,
         IStartupActionOrchestrationService? startupActionOrchestrationService = null)
     {
         this.profileStore = profileStore;
@@ -220,6 +223,7 @@ public partial class MainWindowViewModel : ViewModelBase
         this.remoteSourceSyncService = remoteSourceSyncService ?? new RemoteSourceSyncService(httpClient, resolvedAzurePrivateDnsService);
         this.remoteSyncWorkflowService = remoteSyncWorkflowService ?? new RemoteSyncWorkflowService(this.remoteSourceSyncService);
         this.profileSelectionService = profileSelectionService ?? new ProfileSelectionService(this.remoteSourceSyncService);
+        this.azureProfileCommandService = azureProfileCommandService ?? new AzureProfileCommandService(this.remoteSourceSyncService, this.profileSelectionService);
         this.startupActionOrchestrationService = startupActionOrchestrationService ?? new StartupActionOrchestrationService(
             resolvedSystemHostsWorkflowService,
             () => Program.PendingStartupAction,
@@ -588,61 +592,29 @@ public partial class MainWindowViewModel : ViewModelBase
         IsAzureSubscriptionsLoading = true;
         StatusMessage = "Loading Azure subscriptions...";
 
-        try
-        {
-            var subscriptions = await remoteSourceSyncService.ListAzureSubscriptionsAsync();
-            AzureSubscriptions.Clear();
-            foreach (var subscription in subscriptions)
-            {
-                AzureSubscriptions.Add(subscription);
-            }
+        var result = await azureProfileCommandService.LoadSubscriptionsAsync(
+            SelectedProfile,
+            IsSystemHostsEditingEnabled);
 
-            ApplySelectedProfileChange(profileSelectionService.EvaluateSelectedProfile(
-                SelectedProfile,
-                IsSystemHostsEditingEnabled,
-                AzureSubscriptions));
-            StatusMessage = subscriptions.Count == 0
-                ? "No enabled Azure subscriptions found."
-                : $"Loaded {subscriptions.Count} Azure subscription(s).";
-        }
-        catch (Exception ex)
+        ReplaceAzureSubscriptions(result.Subscriptions);
+        if (result.SelectedProfileChange is not null)
         {
-            StatusMessage = $"Azure connect failed: {ex.Message}";
+            ApplySelectedProfileChange(result.SelectedProfileChange);
         }
-        finally
+
+        if (!string.IsNullOrWhiteSpace(result.StatusMessage))
         {
-            IsAzureSubscriptionsLoading = false;
+            StatusMessage = result.StatusMessage;
         }
+
+        IsAzureSubscriptionsLoading = false;
     }
 
     [RelayCommand]
     private async Task RefreshAzureZonesAsync()
     {
-        if (SelectedProfile is null ||
-            SelectedProfile.SourceType != SourceType.Remote ||
-            SelectedProfile.RemoteTransport != RemoteTransport.AzurePrivateDns)
-        {
-            StatusMessage = "Select an Azure Private DNS remote source first.";
-            return;
-        }
-
-        if (string.IsNullOrWhiteSpace(SelectedProfile.AzureSubscriptionId))
-        {
-            StatusMessage = "Select an Azure subscription first.";
-            return;
-        }
-
-        try
-        {
-            await RefreshAzureZonesForProfileAsync(SelectedProfile, updateSelectedUi: true);
-            StatusMessage = AzureZones.Count == 0
-                ? "No Azure Private DNS zones found for this subscription."
-                : $"Loaded {AzureZones.Count} Azure zone(s).";
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = $"Loading zones failed: {ex.Message}";
-        }
+        await LoadAndApplyAzureZonesAsync(
+            () => azureProfileCommandService.RefreshZonesAsync(SelectedProfile));
     }
 
     private bool CanDeleteProfile(HostProfile? source)
@@ -749,7 +721,8 @@ public partial class MainWindowViewModel : ViewModelBase
         if (profile.RemoteTransport == RemoteTransport.AzurePrivateDns &&
             ReferenceEquals(profile, SelectedProfile))
         {
-            await RefreshAzureZonesForProfileAsync(profile, updateSelectedUi: true);
+            await LoadAndApplyAzureZonesAsync(
+                () => azureProfileCommandService.RefreshZonesForSelectionAsync(profile, cancellationToken));
         }
     }
 
@@ -843,40 +816,40 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    private async Task<IReadOnlyList<AzureZoneSelectionItem>> RefreshAzureZonesForProfileAsync(HostProfile profile, bool updateSelectedUi)
+    private Task ApplyAzureZonesLoadResultAsync(AzureZonesLoadResult result)
     {
-        if (string.IsNullOrWhiteSpace(profile.AzureSubscriptionId))
+        if (result.ShouldReplaceZones)
         {
-            if (updateSelectedUi)
-            {
-                ReplaceAzureZones([]);
-            }
-
-            return [];
+            ReplaceAzureZones(result.Zones);
         }
 
-        if (updateSelectedUi)
+        if (!string.IsNullOrWhiteSpace(result.StatusMessage))
         {
-            IsAzureZonesLoading = true;
+            StatusMessage = result.StatusMessage;
         }
 
+        return Task.CompletedTask;
+    }
+
+    private async Task LoadAndApplyAzureZonesAsync(Func<Task<AzureZonesLoadResult>> loadAsync)
+    {
+        IsAzureZonesLoading = true;
         try
         {
-            var selections = await remoteSourceSyncService.GetAzureZoneSelectionsAsync(profile);
-
-            if (updateSelectedUi)
-            {
-                ReplaceAzureZones(selections);
-            }
-
-            return selections;
+            await ApplyAzureZonesLoadResultAsync(await loadAsync());
         }
         finally
         {
-            if (updateSelectedUi)
-            {
-                IsAzureZonesLoading = false;
-            }
+            IsAzureZonesLoading = false;
+        }
+    }
+
+    private void ReplaceAzureSubscriptions(IEnumerable<AzureSubscriptionOption> subscriptions)
+    {
+        AzureSubscriptions.Clear();
+        foreach (var subscription in subscriptions)
+        {
+            AzureSubscriptions.Add(subscription);
         }
     }
 
@@ -1095,23 +1068,8 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private async Task RefreshAzureZonesForCurrentSelectionAsync()
     {
-        if (SelectedProfile is null ||
-            SelectedProfile.SourceType != SourceType.Remote ||
-            SelectedProfile.RemoteTransport != RemoteTransport.AzurePrivateDns ||
-            string.IsNullOrWhiteSpace(SelectedProfile.AzureSubscriptionId))
-        {
-            ReplaceAzureZones([]);
-            return;
-        }
-
-        try
-        {
-            await RefreshAzureZonesForProfileAsync(SelectedProfile, updateSelectedUi: true);
-        }
-        catch
-        {
-            ReplaceAzureZones([]);
-        }
+        await LoadAndApplyAzureZonesAsync(
+            () => azureProfileCommandService.RefreshZonesForSelectionAsync(SelectedProfile));
     }
 
     private async Task EnsureRunAtStartupMatchesPreferenceAsync()
