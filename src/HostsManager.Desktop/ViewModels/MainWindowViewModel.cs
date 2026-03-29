@@ -41,7 +41,6 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool isInitializing;
     private bool isInitialized;
     private bool isUpdatingRunAtStartup;
-    private bool isSyncingSelectedAzureSubscription;
     private string? quickSyncProfileId;
 
     [ObservableProperty]
@@ -62,22 +61,8 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool hasPendingElevatedHostsUpdate;
 
     [ObservableProperty]
-    private AzureSubscriptionOption? selectedAzureSubscription;
-
-    [ObservableProperty]
-    private bool isAzureSubscriptionsLoading;
-
-    [ObservableProperty]
-    private bool isAzureZonesLoading;
-
-    [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsSelectedEntriesReadOnly))]
     private bool isSystemHostsEditingEnabled;
-
-    [ObservableProperty]
-    [NotifyPropertyChangedFor(nameof(IsSelectedRemoteSyncIdle))]
-    [NotifyCanExecuteChangedFor(nameof(ReadSelectedRemoteHostsCommand))]
-    private bool isSelectedRemoteSyncRunning;
 
     [ObservableProperty]
     private bool selectedSourceChangedExternally;
@@ -86,8 +71,6 @@ public partial class MainWindowViewModel : ViewModelBase
     private string selectedSourceExternalChangeName = string.Empty;
 
     public ObservableCollection<HostProfile> Profiles { get; } = [];
-    public ObservableCollection<AzureSubscriptionOption> AzureSubscriptions { get; } = [];
-    public ObservableCollection<AzureZoneSelectionItem> AzureZones { get; } = [];
     public ObservableCollection<RemoteTransport> RemoteTransports { get; } =
     [
         RemoteTransport.Https,
@@ -103,13 +86,6 @@ public partial class MainWindowViewModel : ViewModelBase
     public StatusActionBarViewModel StatusBar { get; }
 
     public string HostsPath { get; }
-    public bool CanLoadAzureSubscriptions => !IsAzureSubscriptionsLoading;
-    public bool CanRefreshAzureZones => !IsAzureZonesLoading &&
-        SelectedProfile is not null &&
-        SelectedProfile.SourceType == SourceType.Remote &&
-        SelectedProfile.RemoteTransport == RemoteTransport.AzurePrivateDns &&
-        !string.IsNullOrWhiteSpace(SelectedProfile.AzureSubscriptionId);
-    public bool IsSelectedRemoteSyncIdle => !IsSelectedRemoteSyncRunning;
     public bool IsSelectedEntriesReadOnly => SelectedProfile switch
     {
         null => true,
@@ -119,14 +95,7 @@ public partial class MainWindowViewModel : ViewModelBase
         { IsReadOnly: true } => true,
         _ => false
     };
-    public bool IsRemoteSelected => SelectedProfile?.SourceType == SourceType.Remote;
     public bool IsQuickSyncRunning => !string.IsNullOrWhiteSpace(quickSyncProfileId);
-    public bool IsHttpRemoteSelected =>
-        SelectedProfile?.SourceType == SourceType.Remote &&
-        SelectedProfile.RemoteTransport is RemoteTransport.Http or RemoteTransport.Https;
-    public bool IsAzurePrivateDnsRemoteSelected =>
-        SelectedProfile?.SourceType == SourceType.Remote &&
-        SelectedProfile.RemoteTransport == RemoteTransport.AzurePrivateDns;
 
     public MainWindowViewModel()
         : this(
@@ -258,7 +227,15 @@ public partial class MainWindowViewModel : ViewModelBase
             () => OnPropertyChanged(nameof(SelectedProfile)),
             () => OnPropertyChanged(nameof(IsSelectedEntriesReadOnly)),
             static startInfo => Process.Start(startInfo));
-        RemoteEditor = new RemoteSourceEditorViewModel(this);
+        RemoteEditor = new RemoteSourceEditorViewModel(
+            this,
+            this.profileSelectionService,
+            this.remoteSourceSyncService,
+            this.remoteSyncWorkflowService,
+            this.azureProfileCommandService,
+            () => this.profilePersistenceService.SaveConfigurationAsync(MinimizeToTrayOnClose, RunAtStartup, Profiles),
+            () => this.backgroundManagementCoordinator.RunNowAsync(),
+            () => OnPropertyChanged(nameof(SelectedProfile)));
         SourceEditor = new SourceEditorPaneViewModel(
             this,
             localSourceService,

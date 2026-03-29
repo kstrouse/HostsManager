@@ -1,6 +1,5 @@
 using System;
 using System.Linq;
-using System.Threading;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.Input;
 using HostsManager.Desktop.Models;
@@ -10,32 +9,6 @@ namespace HostsManager.Desktop.ViewModels;
 
 public partial class MainWindowViewModel
 {
-    [RelayCommand(CanExecute = nameof(CanReadSelectedRemoteHosts))]
-    private async Task SyncFromUrlAsync()
-    {
-        IsSelectedRemoteSyncRunning = true;
-        try
-        {
-            var result = await remoteSyncWorkflowService.SyncSelectedSourceAsync(
-                SelectedProfile,
-                PrepareProfileForRemoteSyncAsync);
-            await ApplyRemoteSyncCommandResultAsync(result);
-        }
-        finally
-        {
-            IsSelectedRemoteSyncRunning = false;
-        }
-    }
-
-    [RelayCommand]
-    private async Task ReadSelectedRemoteHostsAsync()
-    {
-        await SyncFromUrlAsync();
-    }
-
-    private bool CanReadSelectedRemoteHosts() =>
-        SelectedProfile is { SourceType: SourceType.Remote } && !IsSelectedRemoteSyncRunning;
-
     [RelayCommand]
     private async Task SyncAllFromUrlAsync()
     {
@@ -59,8 +32,8 @@ public partial class MainWindowViewModel
                     UserInitiated = userInitiated,
                     Now = DateTimeOffset.UtcNow
                 },
-                PrepareProfileForRemoteSyncAsync);
-            await ApplyRemoteProfilesSyncResultAsync(result);
+                RemoteEditor.PrepareProfileForRemoteSyncAsync);
+            await RemoteEditor.ApplyRemoteProfilesSyncResultAsync(result);
         }
         finally
         {
@@ -73,8 +46,8 @@ public partial class MainWindowViewModel
         var result = await remoteSyncWorkflowService.HandleSourceEnabledAsync(
             source,
             SelectedProfile,
-            PrepareProfileForRemoteSyncAsync);
-        await ApplyRemoteSyncCommandResultAsync(result);
+            RemoteEditor.PrepareProfileForRemoteSyncAsync);
+        await RemoteEditor.ApplyRemoteSyncCommandResultAsync(result);
     }
 
     public async Task SyncRemoteSourceNowAsync(HostProfile? source)
@@ -95,8 +68,8 @@ public partial class MainWindowViewModel
                 source,
                 SelectedProfile,
                 isQuickSyncRunning: false,
-                PrepareProfileForRemoteSyncAsync);
-            await ApplyRemoteSyncCommandResultAsync(result);
+                RemoteEditor.PrepareProfileForRemoteSyncAsync);
+            await RemoteEditor.ApplyRemoteSyncCommandResultAsync(result);
         }
         catch (Exception ex)
         {
@@ -107,51 +80,5 @@ public partial class MainWindowViewModel
             quickSyncProfileId = null;
             OnPropertyChanged(nameof(IsQuickSyncRunning));
         }
-    }
-
-    private async Task PrepareProfileForRemoteSyncAsync(HostProfile profile, CancellationToken cancellationToken)
-    {
-        if (profile.RemoteTransport == RemoteTransport.AzurePrivateDns &&
-            ReferenceEquals(profile, SelectedProfile))
-        {
-            await LoadAndApplyAzureZonesAsync(
-                () => azureProfileCommandService.RefreshZonesForSelectionAsync(profile, cancellationToken));
-        }
-    }
-
-    private async Task ApplyRemoteProfilesSyncResultAsync(RemoteProfilesSyncResult result)
-    {
-        if (result.ShouldPersistConfiguration)
-            await profilePersistenceService.SaveConfigurationAsync(
-                MinimizeToTrayOnClose,
-                RunAtStartup,
-                Profiles);
-
-        if (result.ShouldNotifySelectedProfileChanged)
-            OnPropertyChanged(nameof(SelectedProfile));
-
-        if (result.ShouldRunBackgroundManagement)
-            await backgroundManagementCoordinator.RunNowAsync();
-
-        if (!string.IsNullOrWhiteSpace(result.StatusMessage))
-            StatusMessage = result.StatusMessage;
-    }
-
-    private async Task ApplyRemoteSyncCommandResultAsync(RemoteSourceSyncCommandResult result)
-    {
-        if (result.ShouldPersistConfiguration)
-            await profilePersistenceService.SaveConfigurationAsync(
-                MinimizeToTrayOnClose,
-                RunAtStartup,
-                Profiles);
-
-        if (result.ShouldNotifySelectedProfileChanged)
-            OnPropertyChanged(nameof(SelectedProfile));
-
-        if (result.ShouldRunBackgroundManagement)
-            await backgroundManagementCoordinator.RunNowAsync();
-
-        if (!string.IsNullOrWhiteSpace(result.StatusMessage))
-            StatusMessage = result.StatusMessage;
     }
 }

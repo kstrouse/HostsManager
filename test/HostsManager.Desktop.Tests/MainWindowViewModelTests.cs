@@ -154,7 +154,7 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
-    public async Task LoadAzureSubscriptionsCommand_PopulatesSubscriptions()
+    public async Task RemoteEditor_LoadAzureSubscriptionsCommand_PopulatesSubscriptions()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
         using var tempDir = new TempDirectory();
@@ -170,14 +170,14 @@ public sealed class MainWindowViewModelTests
         };
         var vm = CreateViewModel(tempDir.Path, hostsPath, azureService: azure);
 
-        await vm.LoadAzureSubscriptionsCommand.ExecuteAsync(null);
+        await vm.RemoteEditor.LoadAzureSubscriptionsCommand.ExecuteAsync(null);
 
-        Assert.Equal(2, vm.AzureSubscriptions.Count);
+        Assert.Equal(2, vm.RemoteEditor.AzureSubscriptions.Count);
         Assert.Equal("Loaded 2 Azure subscription(s).", vm.StatusMessage);
     }
 
     [Fact]
-    public async Task RefreshAzureZonesCommand_UpdatesExcludedZonesWhenSelectionChanges()
+    public async Task RemoteEditor_RefreshAzureZonesCommand_UpdatesExcludedZonesWhenSelectionChanges()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
         using var tempDir = new TempDirectory();
@@ -204,10 +204,10 @@ public sealed class MainWindowViewModelTests
         vm.Profiles.Add(source);
         vm.SelectedProfile = source;
 
-        await vm.RefreshAzureZonesCommand.ExecuteAsync(null);
-        vm.AzureZones[1].IsEnabled = false;
+        await vm.RemoteEditor.RefreshAzureZonesCommand.ExecuteAsync(null);
+        vm.RemoteEditor.AzureZones[1].IsEnabled = false;
 
-        Assert.Equal(2, vm.AzureZones.Count);
+        Assert.Equal(2, vm.RemoteEditor.AzureZones.Count);
         Assert.Equal("Loaded 2 Azure zone(s).", vm.StatusMessage);
         Assert.Equal("b.internal|rg-b", source.AzureExcludedZones.Replace("\r\n", "\n"));
     }
@@ -242,9 +242,9 @@ public sealed class MainWindowViewModelTests
         await Task.Yield();
 
         Assert.Equal(1, azure.ListZonesCallCount);
-        Assert.Single(vm.AzureSubscriptions);
-        Assert.Equal("sub-imported", vm.SelectedAzureSubscription?.Id);
-        Assert.Single(vm.AzureZones);
+        Assert.Single(vm.RemoteEditor.AzureSubscriptions);
+        Assert.Equal("sub-imported", vm.RemoteEditor.SelectedAzureSubscription?.Id);
+        Assert.Single(vm.RemoteEditor.AzureZones);
     }
 
     [Fact]

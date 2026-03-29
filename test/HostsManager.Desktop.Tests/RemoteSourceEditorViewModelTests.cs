@@ -1,37 +1,52 @@
-using System.ComponentModel;
-
 namespace HostsManager.Desktop.Tests;
 
 public sealed class RemoteSourceEditorViewModelTests
 {
     [Fact]
-    public void Constructor_ExposesParentCommandsAndCollections()
+    public async Task LoadAzureSubscriptionsCommand_LoadsSubscriptionsIntoChildViewModel()
     {
+        var cancellationToken = TestContext.Current.CancellationToken;
         using var tempDir = new TempDirectory();
         var hostsPath = Path.Combine(tempDir.Path, "system-hosts");
-        File.WriteAllText(hostsPath, "127.0.0.1 localhost\n");
-        var vm = CreateViewModel(tempDir.Path, hostsPath);
+        await File.WriteAllTextAsync(hostsPath, "127.0.0.1 localhost\n", cancellationToken);
+        var azure = new FakeAzurePrivateDnsService
+        {
+            Subscriptions =
+            [
+                new AzureSubscriptionOption { Id = "sub-1", Name = "Primary" },
+                new AzureSubscriptionOption { Id = "sub-2", Name = "Secondary" }
+            ]
+        };
+        var vm = CreateViewModel(tempDir.Path, hostsPath, azureService: azure);
 
-        Assert.Same(vm.LoadAzureSubscriptionsCommand, vm.RemoteEditor.LoadAzureSubscriptionsCommand);
-        Assert.Same(vm.RefreshAzureZonesCommand, vm.RemoteEditor.RefreshAzureZonesCommand);
-        Assert.Same(vm.ReadSelectedRemoteHostsCommand, vm.RemoteEditor.ReadSelectedRemoteHostsCommand);
-        Assert.Same(vm.AzureSubscriptions, vm.RemoteEditor.AzureSubscriptions);
-        Assert.Same(vm.AzureZones, vm.RemoteEditor.AzureZones);
+        await vm.RemoteEditor.LoadAzureSubscriptionsCommand.ExecuteAsync(null);
+
+        Assert.Equal(2, vm.RemoteEditor.AzureSubscriptions.Count);
+        Assert.Equal("Loaded 2 Azure subscription(s).", vm.StatusMessage);
     }
 
     [Fact]
-    public void SelectedAzureSubscription_ForwardsToOwner()
+    public void SelectedAzureSubscription_UpdatesSelectedProfile()
     {
         using var tempDir = new TempDirectory();
         var hostsPath = Path.Combine(tempDir.Path, "system-hosts");
         File.WriteAllText(hostsPath, "127.0.0.1 localhost\n");
         var vm = CreateViewModel(tempDir.Path, hostsPath);
+        var profile = new HostProfile
+        {
+            Name = "Azure Remote",
+            SourceType = SourceType.Remote,
+            RemoteTransport = RemoteTransport.AzurePrivateDns
+        };
         var subscription = new AzureSubscriptionOption { Id = "sub-1", Name = "Primary" };
+        vm.Profiles.Add(profile);
+        vm.SelectedProfile = profile;
 
         vm.RemoteEditor.SelectedAzureSubscription = subscription;
 
-        Assert.Same(subscription, vm.SelectedAzureSubscription);
         Assert.Same(subscription, vm.RemoteEditor.SelectedAzureSubscription);
+        Assert.Equal("sub-1", profile.AzureSubscriptionId);
+        Assert.Equal("Primary", profile.AzureSubscriptionName);
     }
 
     [Fact]
@@ -60,21 +75,67 @@ public sealed class RemoteSourceEditorViewModelTests
     }
 
     [Fact]
-    public void OwnerSyncStateChange_RaisesRunningAndIdleProperties()
+    public async Task ReadSelectedRemoteHostsCommand_SyncsRemoteSourceAndUpdatesStatus()
     {
+        var cancellationToken = TestContext.Current.CancellationToken;
         using var tempDir = new TempDirectory();
         var hostsPath = Path.Combine(tempDir.Path, "system-hosts");
-        File.WriteAllText(hostsPath, "127.0.0.1 localhost\n");
-        var vm = CreateViewModel(tempDir.Path, hostsPath);
-        var notifications = new List<string>();
-        vm.RemoteEditor.PropertyChanged += (_, e) => notifications.Add(e.PropertyName ?? string.Empty);
+        await File.WriteAllTextAsync(hostsPath, "127.0.0.1 localhost\n", cancellationToken);
+        var handler = new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("10.0.0.5 synced.remote\n", Encoding.UTF8)
+        });
+        var vm = CreateViewModel(tempDir.Path, hostsPath, httpClient: new HttpClient(handler));
+        var profile = new HostProfile
+        {
+            Id = "remote-1",
+            Name = "Remote",
+            SourceType = SourceType.Remote,
+            RemoteTransport = RemoteTransport.Https,
+            RemoteLocation = "https://example.test/hosts"
+        };
+        vm.Profiles.Add(profile);
+        vm.SelectedProfile = profile;
 
-        vm.IsSelectedRemoteSyncRunning = true;
+        await vm.RemoteEditor.ReadSelectedRemoteHostsCommand.ExecuteAsync(null);
 
-        Assert.True(vm.RemoteEditor.IsSelectedRemoteSyncRunning);
-        Assert.False(vm.RemoteEditor.IsSelectedRemoteSyncIdle);
-        Assert.Contains(nameof(RemoteSourceEditorViewModel.IsSelectedRemoteSyncRunning), notifications);
-        Assert.Contains(nameof(RemoteSourceEditorViewModel.IsSelectedRemoteSyncIdle), notifications);
+        Assert.Equal("10.0.0.5 synced.remote\n", profile.Entries.Replace("\r\n", "\n"));
+        Assert.Equal("Synced selected remote source.", vm.StatusMessage);
+        Assert.False(vm.RemoteEditor.IsSelectedRemoteSyncRunning);
+        Assert.True(vm.RemoteEditor.IsSelectedRemoteSyncIdle);
+    }
+
+    [Fact]
+    public async Task SelectingAzureProfile_LoadsPlaceholderSubscriptionAndZonesIntoChildViewModel()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        using var tempDir = new TempDirectory();
+        var hostsPath = Path.Combine(tempDir.Path, "system-hosts");
+        await File.WriteAllTextAsync(hostsPath, "127.0.0.1 localhost\n", cancellationToken);
+        var azure = new FakeAzurePrivateDnsService
+        {
+            Zones =
+            [
+                new AzurePrivateDnsZoneInfo { ZoneName = "a.internal", ResourceGroup = "rg-a" }
+            ]
+        };
+        var vm = CreateViewModel(tempDir.Path, hostsPath, azureService: azure);
+        var profile = new HostProfile
+        {
+            Name = "Azure Remote",
+            SourceType = SourceType.Remote,
+            RemoteTransport = RemoteTransport.AzurePrivateDns,
+            AzureSubscriptionId = "sub-imported",
+            AzureSubscriptionName = "Imported"
+        };
+        vm.Profiles.Add(profile);
+
+        vm.SelectedProfile = profile;
+        await Task.Yield();
+
+        Assert.Single(vm.RemoteEditor.AzureSubscriptions);
+        Assert.Equal("sub-imported", vm.RemoteEditor.SelectedAzureSubscription?.Id);
+        Assert.Single(vm.RemoteEditor.AzureZones);
     }
 
     private static MainWindowViewModel CreateViewModel(
