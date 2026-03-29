@@ -3,7 +3,6 @@ using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Diagnostics;
-using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Runtime.InteropServices;
@@ -100,6 +99,7 @@ public partial class MainWindowViewModel : ViewModelBase
         RemoteTransport.AzurePrivateDns
     ];
     public SourceListViewModel SourceList { get; }
+    public LocalSourceEditorViewModel LocalEditor { get; }
     public RemoteSourceEditorViewModel RemoteEditor { get; }
 
     public string HostsPath { get; }
@@ -130,7 +130,6 @@ public partial class MainWindowViewModel : ViewModelBase
         _ => SelectedProfile.SourceType.ToString()
     };
     public bool IsSystemSelected => SelectedProfile?.SourceType == SourceType.System;
-    public bool IsLocalSelected => SelectedProfile?.SourceType == SourceType.Local;
     public bool IsRemoteSelected => SelectedProfile?.SourceType == SourceType.Remote;
     public bool IsQuickSyncRunning => !string.IsNullOrWhiteSpace(quickSyncProfileId);
     public bool IsHttpRemoteSelected =>
@@ -139,16 +138,6 @@ public partial class MainWindowViewModel : ViewModelBase
     public bool IsAzurePrivateDnsRemoteSelected =>
         SelectedProfile?.SourceType == SourceType.Remote &&
         SelectedProfile.RemoteTransport == RemoteTransport.AzurePrivateDns;
-    public string SelectedLocalFilePath =>
-        SelectedProfile?.SourceType == SourceType.Local
-            ? SelectedProfile.LocalPath
-            : string.Empty;
-    public string SelectedLocalFolderPath =>
-        SelectedProfile?.SourceType == SourceType.Local && !string.IsNullOrWhiteSpace(SelectedProfile.LocalPath)
-            ? Path.GetDirectoryName(SelectedProfile.LocalPath) ?? string.Empty
-            : string.Empty;
-    public bool IsSelectedLocalFileMissing =>
-        SelectedProfile is { SourceType: SourceType.Local, IsMissingLocalFile: true };
 
     public MainWindowViewModel()
         : this(
@@ -265,6 +254,7 @@ public partial class MainWindowViewModel : ViewModelBase
             BuildBackgroundManagementRequest,
             ApplyBackgroundManagementResult);
         SourceList = new SourceListViewModel(this);
+        LocalEditor = new LocalSourceEditorViewModel(this);
         RemoteEditor = new RemoteSourceEditorViewModel(this);
 
         this.refreshTimer.Tick += async (_, _) => await RefreshRemoteProfilesAsync(forceAll: false, userInitiated: false);

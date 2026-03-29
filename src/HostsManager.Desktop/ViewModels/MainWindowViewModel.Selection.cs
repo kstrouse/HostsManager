@@ -88,13 +88,9 @@ public partial class MainWindowViewModel
         OnPropertyChanged(nameof(IsSelectedEntriesReadOnly));
         OnPropertyChanged(nameof(SelectedSourceTypeDisplay));
         OnPropertyChanged(nameof(IsSystemSelected));
-        OnPropertyChanged(nameof(IsLocalSelected));
         OnPropertyChanged(nameof(IsRemoteSelected));
         OnPropertyChanged(nameof(IsHttpRemoteSelected));
         OnPropertyChanged(nameof(IsAzurePrivateDnsRemoteSelected));
-        OnPropertyChanged(nameof(SelectedLocalFilePath));
-        OnPropertyChanged(nameof(SelectedLocalFolderPath));
-        OnPropertyChanged(nameof(IsSelectedLocalFileMissing));
         OnPropertyChanged(nameof(CanRefreshAzureZones));
         ReloadLocalSourceCommand.NotifyCanExecuteChanged();
         SaveEntriesToLocalCommand.NotifyCanExecuteChanged();

@@ -38,8 +38,6 @@ public partial class MainWindowViewModel
             await localSourceService.RenameAsync(SelectedProfile, requestedName);
             localSourceWatcherService.MarkDirty();
             OnPropertyChanged(nameof(SelectedProfile));
-            OnPropertyChanged(nameof(SelectedLocalFilePath));
-            OnPropertyChanged(nameof(SelectedLocalFolderPath));
             await SaveProfilesAsync();
             StatusMessage = $"Renamed local file to {Path.GetFileName(SelectedProfile.LocalPath)}.";
         }
@@ -157,7 +155,6 @@ public partial class MainWindowViewModel
 
             OnPropertyChanged(nameof(SelectedProfile));
             OnPropertyChanged(nameof(IsSelectedEntriesReadOnly));
-            OnPropertyChanged(nameof(IsSelectedLocalFileMissing));
             ReloadLocalSourceCommand.NotifyCanExecuteChanged();
             SaveEntriesToLocalCommand.NotifyCanExecuteChanged();
             SaveSelectedSourceCommand.NotifyCanExecuteChanged();
@@ -254,7 +251,6 @@ public partial class MainWindowViewModel
             SaveSelectedSourceCommand.NotifyCanExecuteChanged();
             RecreateMissingLocalFileCommand.NotifyCanExecuteChanged();
             OnPropertyChanged(nameof(IsSelectedEntriesReadOnly));
-            OnPropertyChanged(nameof(IsSelectedLocalFileMissing));
         }
     }
 

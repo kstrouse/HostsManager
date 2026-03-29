@@ -1,6 +1,5 @@
 using System;
 using System.ComponentModel;
-using System.IO;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -204,28 +203,6 @@ public partial class MainWindow : Window
 
         e.Handled = true;
         await SaveSelectedSourceAsync(vm, requireUnsavedEditorDraft: true);
-    }
-
-    private async void RenameLocalFileClick(object? sender, RoutedEventArgs e)
-    {
-        if (DataContext is not MainWindowViewModel vm)
-        {
-            return;
-        }
-
-        if (vm.SelectedProfile is null || vm.SelectedProfile.SourceType != SourceType.Local)
-        {
-            return;
-        }
-
-        var currentFileName = Path.GetFileName(vm.SelectedProfile.LocalPath);
-        var requestedName = await ShowRenameLocalFileDialogAsync(currentFileName);
-        if (requestedName is null)
-        {
-            return;
-        }
-
-        await vm.RenameSelectedLocalFileAsync(requestedName);
     }
 
     public void ShowFromTray()
@@ -588,73 +565,4 @@ public partial class MainWindow : Window
         return shouldReload;
     }
 
-    private async Task<string?> ShowRenameLocalFileDialogAsync(string currentFileName)
-    {
-        var fileNameTextBox = new TextBox
-        {
-            MinWidth = 320,
-            Text = currentFileName
-        };
-
-        string? result = null;
-
-        var renameButton = new Button
-        {
-            Content = "Rename",
-            MinWidth = 90,
-            IsDefault = true
-        };
-
-        var cancelButton = new Button
-        {
-            Content = "Cancel",
-            MinWidth = 90,
-            IsCancel = true
-        };
-
-        var dialog = new Window
-        {
-            Title = "Rename Local File",
-            WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            CanResize = false,
-            SizeToContent = SizeToContent.WidthAndHeight,
-            Content = new Border
-            {
-                Padding = new Thickness(16),
-                Child = new StackPanel
-                {
-                    Spacing = 12,
-                    Children =
-                    {
-                        new TextBlock
-                        {
-                            Text = "Enter a new file name:"
-                        },
-                        fileNameTextBox,
-                        new StackPanel
-                        {
-                            Orientation = Avalonia.Layout.Orientation.Horizontal,
-                            HorizontalAlignment = Avalonia.Layout.HorizontalAlignment.Right,
-                            Spacing = 8,
-                            Children =
-                            {
-                                cancelButton,
-                                renameButton
-                            }
-                        }
-                    }
-                }
-            }
-        };
-
-        cancelButton.Click += (_, _) => dialog.Close();
-        renameButton.Click += (_, _) =>
-        {
-            result = fileNameTextBox.Text;
-            dialog.Close();
-        };
-
-        await dialog.ShowDialog(this);
-        return result;
-    }
 }
