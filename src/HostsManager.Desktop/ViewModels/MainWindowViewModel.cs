@@ -99,6 +99,7 @@ public partial class MainWindowViewModel : ViewModelBase
         RemoteTransport.Sftp,
         RemoteTransport.AzurePrivateDns
     ];
+    public SourceListViewModel SourceList { get; }
     public RemoteSourceEditorViewModel RemoteEditor { get; }
 
     public string HostsPath { get; }
@@ -263,6 +264,7 @@ public partial class MainWindowViewModel : ViewModelBase
             }),
             BuildBackgroundManagementRequest,
             ApplyBackgroundManagementResult);
+        SourceList = new SourceListViewModel(this);
         RemoteEditor = new RemoteSourceEditorViewModel(this);
 
         this.refreshTimer.Tick += async (_, _) => await RefreshRemoteProfilesAsync(forceAll: false, userInitiated: false);
