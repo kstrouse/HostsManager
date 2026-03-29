@@ -76,62 +76,6 @@ public partial class MainWindowViewModel
         StatusMessage = $"Saved source: {SelectedProfile.Name}";
     }
 
-    [RelayCommand]
-    private void NewRemoteSource() => AddRemoteSource(RemoteTransport.Https);
-
-    public void AddRemoteSource(RemoteTransport remoteTransport)
-    {
-        var sourceIndex = Profiles.Count(source => !source.IsReadOnly) + 1;
-        var profile = new HostProfile
-        {
-            Name = $"Remote Source {sourceIndex}",
-            IsEnabled = true,
-            SourceType = SourceType.Remote,
-            RemoteTransport = remoteTransport,
-            RefreshIntervalMinutes = "15",
-            Entries = string.Empty
-        };
-
-        Profiles.Add(profile);
-        SelectedProfile = profile;
-        localSourceWatcherService.MarkDirty();
-        StatusMessage = $"New remote source created ({GetRemoteTransportDisplay(remoteTransport)}).";
-    }
-
-    [RelayCommand(CanExecute = nameof(CanDeleteProfile))]
-    private void DeleteProfile(HostProfile? source)
-    {
-        var target = source ?? SelectedProfile;
-        if (target is null)
-            return;
-
-        if (target.IsReadOnly)
-        {
-            StatusMessage = "Read-only source cannot be deleted.";
-            return;
-        }
-
-        var current = target;
-        var index = Profiles.IndexOf(current);
-        if (index < 0)
-            return;
-
-        Profiles.Remove(current);
-
-        SelectedProfile = Profiles.Count == 0
-            ? null
-            : Profiles[Math.Clamp(index, 0, Profiles.Count - 1)];
-
-        localSourceWatcherService.MarkDirty();
-        StatusMessage = "Source removed.";
-    }
-
-    private bool CanDeleteProfile(HostProfile? source)
-    {
-        var target = source ?? SelectedProfile;
-        return target is not null && !target.IsReadOnly;
-    }
-
     private bool CanSaveSelectedSource() =>
         SelectedProfile switch
         {
@@ -139,13 +83,5 @@ public partial class MainWindowViewModel
             { SourceType: SourceType.Local, IsMissingLocalFile: true } => false,
             { SourceType: SourceType.System } => IsSystemHostsEditingEnabled,
             _ => !SelectedProfile.IsReadOnly
-        };
-
-    private static string GetRemoteTransportDisplay(RemoteTransport remoteTransport) =>
-        remoteTransport switch
-        {
-            RemoteTransport.Http or RemoteTransport.Https => "HTTP/HTTPS",
-            RemoteTransport.AzurePrivateDns => "Azure Private DNS",
-            _ => remoteTransport.ToString()
         };
 }

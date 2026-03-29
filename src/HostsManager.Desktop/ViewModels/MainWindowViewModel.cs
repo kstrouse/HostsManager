@@ -45,7 +45,6 @@ public partial class MainWindowViewModel : ViewModelBase
     private string? quickSyncProfileId;
 
     [ObservableProperty]
-    [NotifyCanExecuteChangedFor(nameof(DeleteProfileCommand))]
     [NotifyCanExecuteChangedFor(nameof(ReloadLocalSourceCommand))]
     [NotifyCanExecuteChangedFor(nameof(SaveEntriesToLocalCommand))]
     [NotifyCanExecuteChangedFor(nameof(SaveSelectedSourceCommand))]
@@ -245,7 +244,12 @@ public partial class MainWindowViewModel : ViewModelBase
             }),
             BuildBackgroundManagementRequest,
             ApplyBackgroundManagementResult);
-        SourceList = new SourceListViewModel(this);
+        SourceList = new SourceListViewModel(
+            this,
+            localSourceService,
+            localSourceWatcherService,
+            source => HandleRemoteSourceToggledAsync(source),
+            () => this.backgroundManagementCoordinator.RequestImmediateReconcileAsync());
         SelectedSourceDetails = new SelectedSourceDetailsViewModel(this);
         LocalEditor = new LocalSourceEditorViewModel(
             this,

@@ -61,7 +61,7 @@ public sealed class SourceEditorPaneViewModelTests
         var localPath = Path.Combine(tempDir.Path, "reload.hosts");
         await File.WriteAllTextAsync(localPath, "127.0.0.1 before.local\n", cancellationToken);
         var vm = CreateViewModel(tempDir.Path, hostsPath);
-        await vm.AddExistingLocalSourceAsync(localPath);
+        await vm.SourceList.AddExistingLocalSourceAsync(localPath);
         vm.SelectedSourceChangedExternally = true;
         vm.SelectedSourceExternalChangeName = "reload";
         await File.WriteAllTextAsync(localPath, "127.0.0.1 after.local\n", cancellationToken);

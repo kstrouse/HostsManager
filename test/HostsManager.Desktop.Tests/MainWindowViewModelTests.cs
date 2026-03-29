@@ -46,7 +46,7 @@ public sealed class MainWindowViewModelTests
         File.WriteAllText(hostsPath, "127.0.0.1 localhost\n");
         var vm = CreateViewModel(tempDir.Path, hostsPath);
 
-        vm.AddRemoteSource(RemoteTransport.Http);
+        vm.SourceList.AddRemoteSource(RemoteTransport.Http);
 
         var profile = Assert.IsType<HostProfile>(vm.SelectedProfile);
         Assert.Equal(SourceType.Remote, profile.SourceType);
@@ -65,7 +65,7 @@ public sealed class MainWindowViewModelTests
         var vm = CreateViewModel(tempDir.Path, hostsPath);
         var localPath = Path.Combine(tempDir.Path, "dev.hosts");
 
-        await vm.AddNewLocalSourceAsync(localPath);
+        await vm.SourceList.AddNewLocalSourceAsync(localPath);
 
         Assert.True(File.Exists(localPath));
         Assert.Equal("Local source created and added.", vm.StatusMessage);
@@ -86,7 +86,7 @@ public sealed class MainWindowViewModelTests
         await File.WriteAllTextAsync(currentPath, "127.0.0.1 old.local\n", cancellationToken);
 
         var vm = CreateViewModel(tempDir.Path, hostsPath);
-        await vm.AddExistingLocalSourceAsync(currentPath);
+        await vm.SourceList.AddExistingLocalSourceAsync(currentPath);
 
         await vm.LocalEditor.RenameSelectedLocalFileAsync("renamed");
 
@@ -108,7 +108,7 @@ public sealed class MainWindowViewModelTests
         await File.WriteAllTextAsync(localPath, "127.0.0.1 before.local\n", cancellationToken);
 
         var vm = CreateViewModel(tempDir.Path, hostsPath);
-        await vm.AddExistingLocalSourceAsync(localPath);
+        await vm.SourceList.AddExistingLocalSourceAsync(localPath);
         vm.SelectedSourceChangedExternally = true;
         vm.SelectedSourceExternalChangeName = "reload";
         await File.WriteAllTextAsync(localPath, "127.0.0.1 after.local\n", cancellationToken);

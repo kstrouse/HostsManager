@@ -3,7 +3,7 @@ namespace HostsManager.Desktop.Tests;
 public sealed class SourceListViewModelTests
 {
     [Fact]
-    public void Constructor_ExposesProfilesAndDeleteCommand()
+    public void Constructor_ExposesProfiles()
     {
         using var tempDir = new TempDirectory();
         var hostsPath = Path.Combine(tempDir.Path, "system-hosts");
@@ -11,7 +11,6 @@ public sealed class SourceListViewModelTests
         var vm = CreateViewModel(tempDir.Path, hostsPath);
 
         Assert.Same(vm.Profiles, vm.SourceList.Profiles);
-        Assert.Same(vm.DeleteProfileCommand, vm.SourceList.DeleteProfileCommand);
     }
 
     [Fact]
@@ -72,6 +71,55 @@ public sealed class SourceListViewModelTests
 
         Assert.Equal("10.0.0.5 remote.toggle\n", source.Entries.Replace("\r\n", "\n"));
         Assert.Equal("Remote source synced on enable: Remote Toggle", vm.StatusMessage);
+    }
+
+    [Fact]
+    public async Task AddNewLocalSourceAsync_CreatesLocalProfile()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        using var tempDir = new TempDirectory();
+        var hostsPath = Path.Combine(tempDir.Path, "system-hosts");
+        await File.WriteAllTextAsync(hostsPath, "127.0.0.1 localhost\n", cancellationToken);
+        var vm = CreateViewModel(tempDir.Path, hostsPath);
+        var localPath = Path.Combine(tempDir.Path, "dev.hosts");
+
+        await vm.SourceList.AddNewLocalSourceAsync(localPath);
+
+        Assert.True(File.Exists(localPath));
+        Assert.Equal(SourceType.Local, vm.SelectedProfile?.SourceType);
+        Assert.Equal("Local source created and added.", vm.StatusMessage);
+    }
+
+    [Fact]
+    public void AddRemoteSource_AddsConfiguredProfile()
+    {
+        using var tempDir = new TempDirectory();
+        var hostsPath = Path.Combine(tempDir.Path, "system-hosts");
+        File.WriteAllText(hostsPath, "127.0.0.1 localhost\n");
+        var vm = CreateViewModel(tempDir.Path, hostsPath);
+
+        vm.SourceList.AddRemoteSource(RemoteTransport.AzurePrivateDns);
+
+        Assert.Equal(SourceType.Remote, vm.SelectedProfile?.SourceType);
+        Assert.Equal(RemoteTransport.AzurePrivateDns, vm.SelectedProfile?.RemoteTransport);
+        Assert.Equal("New remote source created (Azure Private DNS).", vm.StatusMessage);
+    }
+
+    [Fact]
+    public void DeleteProfileCommand_RemovesSelectedWritableProfile()
+    {
+        using var tempDir = new TempDirectory();
+        var hostsPath = Path.Combine(tempDir.Path, "system-hosts");
+        File.WriteAllText(hostsPath, "127.0.0.1 localhost\n");
+        var vm = CreateViewModel(tempDir.Path, hostsPath);
+        var profile = new HostProfile { Name = "Remote", SourceType = SourceType.Remote };
+        vm.Profiles.Add(profile);
+        vm.SelectedProfile = profile;
+
+        vm.SourceList.DeleteProfileCommand.Execute(null);
+
+        Assert.DoesNotContain(profile, vm.Profiles);
+        Assert.Equal("Source removed.", vm.StatusMessage);
     }
 
     private static MainWindowViewModel CreateViewModel(

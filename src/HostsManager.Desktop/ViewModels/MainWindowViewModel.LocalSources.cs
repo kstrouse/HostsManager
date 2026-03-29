@@ -83,44 +83,6 @@ public partial class MainWindowViewModel
         }
     }
 
-    public async Task AddNewLocalSourceAsync(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-            return;
-
-        try
-        {
-            var source = await localSourceService.CreateNewSourceAsync(path);
-            Profiles.Add(source);
-            SelectedProfile = source;
-            localSourceWatcherService.MarkDirty();
-            StatusMessage = "Local source created and added.";
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = $"Create local source failed: {ex.Message}";
-        }
-    }
-
-    public async Task AddExistingLocalSourceAsync(string path)
-    {
-        if (string.IsNullOrWhiteSpace(path))
-            return;
-
-        try
-        {
-            var source = await localSourceService.LoadExistingSourceAsync(path);
-            Profiles.Add(source);
-            SelectedProfile = source;
-            localSourceWatcherService.MarkDirty();
-            StatusMessage = "Existing local source added.";
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = $"Add local source failed: {ex.Message}";
-        }
-    }
-
     public async Task<bool> ReloadSelectedSourceFromDiskAsync()
     {
         if (SelectedProfile is null)

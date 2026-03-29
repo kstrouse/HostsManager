@@ -85,7 +85,7 @@ public sealed class LocalSourceEditorViewModelTests
         var currentPath = Path.Combine(tempDir.Path, "old.hosts");
         await File.WriteAllTextAsync(currentPath, "127.0.0.1 old.local\n", cancellationToken);
         var vm = CreateViewModel(tempDir.Path, hostsPath);
-        await vm.AddExistingLocalSourceAsync(currentPath);
+        await vm.SourceList.AddExistingLocalSourceAsync(currentPath);
 
         await vm.LocalEditor.RenameSelectedLocalFileAsync("renamed");
 

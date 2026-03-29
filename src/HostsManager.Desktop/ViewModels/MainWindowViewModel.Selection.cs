@@ -92,6 +92,5 @@ public partial class MainWindowViewModel
         ReloadLocalSourceCommand.NotifyCanExecuteChanged();
         SaveEntriesToLocalCommand.NotifyCanExecuteChanged();
         ReadSelectedRemoteHostsCommand.NotifyCanExecuteChanged();
-        DeleteProfileCommand.NotifyCanExecuteChanged();
     }
 }
