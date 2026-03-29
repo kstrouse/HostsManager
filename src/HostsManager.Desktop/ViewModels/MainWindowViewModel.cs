@@ -21,12 +21,11 @@ namespace HostsManager.Desktop.ViewModels;
 public partial class MainWindowViewModel : ViewModelBase
 {
     private readonly IProfileStore profileStore;
-    private readonly IHostsFileService hostsFileService;
     private readonly ILocalSourceService localSourceService;
     private readonly IHostsStateTracker hostsStateTracker;
     private readonly IRemoteSourceSyncService remoteSourceSyncService;
     private readonly IStartupRegistrationService startupRegistrationService;
-    private readonly IWindowsElevationService windowsElevationService;
+    private readonly ISystemHostsWorkflowService systemHostsWorkflowService;
     private readonly IUiTimer refreshTimer;
     private readonly IUiTimer manageTimer;
     private readonly Dictionary<string, FileSystemWatcher> localSourceWatchers;
@@ -156,6 +155,7 @@ public partial class MainWindowViewModel : ViewModelBase
             CreateTimer(TimeSpan.FromMinutes(1)),
             CreateTimer(TimeSpan.FromSeconds(2)),
             null,
+            null,
             null)
     {
     }
@@ -171,14 +171,18 @@ public partial class MainWindowViewModel : ViewModelBase
         IUiTimer? refreshTimer = null,
         IUiTimer? manageTimer = null,
         IHostsStateTracker? hostsStateTracker = null,
+        ISystemHostsWorkflowService? systemHostsWorkflowService = null,
         IRemoteSourceSyncService? remoteSourceSyncService = null)
     {
         this.profileStore = profileStore;
-        this.hostsFileService = hostsFileService;
         this.localSourceService = localSourceService;
         this.hostsStateTracker = hostsStateTracker ?? new HostsStateTracker();
         this.startupRegistrationService = startupRegistrationService;
-        this.windowsElevationService = windowsElevationService;
+        this.systemHostsWorkflowService = systemHostsWorkflowService ?? new SystemHostsWorkflowService(
+            hostsFileService,
+            localSourceService,
+            profileStore,
+            windowsElevationService);
         var resolvedAzurePrivateDnsService = azurePrivateDnsService ?? new AzurePrivateDnsService(httpClient);
         this.remoteSourceSyncService = remoteSourceSyncService ?? new RemoteSourceSyncService(httpClient, resolvedAzurePrivateDnsService);
         this.refreshTimer = refreshTimer ?? CreateTimer(TimeSpan.FromMinutes(1));
@@ -189,7 +193,7 @@ public partial class MainWindowViewModel : ViewModelBase
         this.refreshTimer.Tick += async (_, _) => await RefreshRemoteProfilesAsync(forceAll: false, userInitiated: false);
         this.manageTimer.Tick += async (_, _) => await RunBackgroundManagementTickAsync();
 
-        HostsPath = hostsFileService.GetHostsFilePath();
+        HostsPath = this.systemHostsWorkflowService.GetHostsFilePath();
     }
 
     private static HttpClient CreateDefaultHttpClient()
@@ -216,7 +220,7 @@ public partial class MainWindowViewModel : ViewModelBase
             MinimizeToTrayOnClose = loaded.MinimizeToTrayOnClose;
             RunAtStartup = loaded.RunAtStartup;
 
-            var systemSource = await BuildSystemHostsSourceAsync();
+            var systemSource = await systemHostsWorkflowService.BuildSystemSourceAsync();
             Profiles.Add(systemSource);
 
             foreach (var profile in loaded.Profiles)
@@ -389,7 +393,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         try
         {
-            await hostsFileService.ApplySourcesAsync(Profiles, allowPrivilegePrompt: true);
+            await systemHostsWorkflowService.ApplyManagedHostsAsync(Profiles, allowPrivilegePrompt: true);
             await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: false);
             hostsStateTracker.MarkManagedApplySucceeded(Profiles);
             HasPendingElevatedHostsUpdate = false;
@@ -415,7 +419,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         try
         {
-            await hostsFileService.RestoreBackupAsync(allowPrivilegePrompt: true);
+            await systemHostsWorkflowService.RestoreBackupAsync(allowPrivilegePrompt: true);
             await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: false);
             HasPendingElevatedHostsUpdate = false;
             StatusMessage = "Hosts file restored from backup.";
@@ -633,7 +637,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         try
         {
-            await hostsFileService.SaveRawHostsFileAsync(profile.Entries ?? string.Empty, allowPrivilegePrompt: true);
+            await systemHostsWorkflowService.SaveRawHostsAsync(profile.Entries ?? string.Empty, allowPrivilegePrompt: true);
             await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: false);
             localSourcesDirty = true;
             IsSystemHostsEditingEnabled = false;
@@ -947,7 +951,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
                 try
                 {
-                    await hostsFileService.ApplySourcesAsync(Profiles);
+                    await systemHostsWorkflowService.ApplyManagedHostsAsync(Profiles);
                     var systemChangedAfterApply = await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: true);
                     hostsStateTracker.MarkManagedApplySucceeded(Profiles);
                     HasPendingElevatedHostsUpdate = false;
@@ -1353,20 +1357,6 @@ public partial class MainWindowViewModel : ViewModelBase
         };
     }
 
-    private static string GetHostsPermissionDeniedMessage(bool forBackgroundApply)
-    {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-        {
-            return forBackgroundApply
-                ? "Background manager skipped hosts-file updates. Use Apply Hosts Now and approve the macOS admin prompt."
-                : "Administrative access is required to modify /etc/hosts on macOS. Approve the macOS admin prompt and try again.";
-        }
-
-        return forBackgroundApply
-            ? "Pending hosts changes need administrator approval. Click Apply to elevate."
-            : "Administrator approval is required to modify the hosts file.";
-    }
-
     private static string GetRemoteTransportDisplay(RemoteTransport remoteTransport)
     {
         return remoteTransport switch
@@ -1374,37 +1364,6 @@ public partial class MainWindowViewModel : ViewModelBase
             RemoteTransport.Http or RemoteTransport.Https => "HTTP/HTTPS",
             RemoteTransport.AzurePrivateDns => "Azure Private DNS",
             _ => remoteTransport.ToString()
-        };
-    }
-
-    private async Task<HostProfile> BuildSystemHostsSourceAsync()
-    {
-        string text;
-        try
-        {
-            text = await File.ReadAllTextAsync(HostsPath);
-        }
-        catch (UnauthorizedAccessException ex)
-        {
-            text = "# Unable to read system hosts file (permission denied)." + Environment.NewLine +
-                   "# " + ex.Message;
-        }
-        catch (Exception ex)
-        {
-            text = "# Unable to read system hosts file." + Environment.NewLine +
-                   "# " + ex.Message;
-        }
-
-        return new HostProfile
-        {
-            Id = "system-hosts-source",
-            Name = "System Hosts",
-            IsEnabled = true,
-            SourceType = SourceType.System,
-            LocalPath = HostsPath,
-            Entries = text,
-            IsReadOnly = true,
-            LastLoadedFromDiskEntries = text
         };
     }
 
@@ -1418,7 +1377,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         if (skipSelectedProfile && ReferenceEquals(SelectedProfile, systemSource))
         {
-            if (await localSourceService.HasDiskContentChangedAsync(systemSource))
+            if (await systemHostsWorkflowService.HasSystemSourceChangedAsync(systemSource))
             {
                 SetSelectedSourceExternalChangeNotification(systemSource);
             }
@@ -1426,7 +1385,7 @@ public partial class MainWindowViewModel : ViewModelBase
             return false;
         }
 
-        var changed = await localSourceService.ReloadFromDiskAsync(systemSource);
+        var changed = await systemHostsWorkflowService.ReloadSystemSourceAsync(systemSource);
         if (changed && ReferenceEquals(SelectedProfile, systemSource))
         {
             var current = SelectedProfile;
@@ -1457,7 +1416,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private void SetPendingElevatedHostsUpdate(bool forBackgroundApply)
     {
         HasPendingElevatedHostsUpdate = true;
-        StatusMessage = GetHostsPermissionDeniedMessage(forBackgroundApply);
+        StatusMessage = systemHostsWorkflowService.GetPermissionDeniedMessage(forBackgroundApply);
     }
 
     private void InitializeManagedStateFromSystemHosts()
@@ -1468,18 +1427,12 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private bool NeedsElevatedApply()
     {
-        var systemSource = GetSystemSource();
-        if (systemSource is null)
-        {
-            return true;
-        }
-
-        return !hostsFileService.ManagedHostsMatch(Profiles, systemSource.Entries);
+        return systemHostsWorkflowService.NeedsManagedApply(Profiles, GetSystemSource());
     }
 
     private async Task<bool> TryEscalateWindowsActionAsync(StartupAction action, string? rawHostsContent = null)
     {
-        if (!windowsElevationService.IsSupported || windowsElevationService.IsProcessElevated())
+        if (!systemHostsWorkflowService.CanRequestElevation())
         {
             return false;
         }
@@ -1487,11 +1440,11 @@ public partial class MainWindowViewModel : ViewModelBase
         string? payloadPath = null;
         if (action == StartupAction.SaveRawHosts)
         {
-            payloadPath = await WritePendingRawHostsPayloadAsync(rawHostsContent ?? string.Empty);
+            payloadPath = await systemHostsWorkflowService.WritePendingRawHostsPayloadAsync(rawHostsContent ?? string.Empty);
         }
 
         var startInBackground = ShouldRelaunchElevatedInBackground();
-        var relaunched = windowsElevationService.TryRelaunchElevated(action, payloadPath, startInBackground);
+        var relaunched = systemHostsWorkflowService.TryRelaunchElevated(action, startInBackground, payloadPath);
         if (!relaunched)
         {
             StatusMessage = "Administrator approval was canceled or failed.";
@@ -1504,14 +1457,6 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         return true;
-    }
-
-    private async Task<string> WritePendingRawHostsPayloadAsync(string content)
-    {
-        Directory.CreateDirectory(profileStore.ConfigDirectory);
-        var payloadPath = Path.Combine(profileStore.ConfigDirectory, "pending-system-hosts.txt");
-        await File.WriteAllTextAsync(payloadPath, content);
-        return payloadPath;
     }
 
     private static bool ShouldRelaunchElevatedInBackground()
@@ -1538,46 +1483,44 @@ public partial class MainWindowViewModel : ViewModelBase
 
         try
         {
-            switch (Program.PendingStartupAction)
+            var action = Program.PendingStartupAction;
+            var result = await systemHostsWorkflowService.ExecuteStartupActionAsync(
+                action,
+                Profiles,
+                Program.StartupActionPayloadPath);
+
+            switch (action)
             {
                 case StartupAction.ApplyManagedHosts:
-                    await hostsFileService.ApplySourcesAsync(Profiles);
-                    await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: false);
-                    hostsStateTracker.MarkManagedApplySucceeded(Profiles);
-                    HasPendingElevatedHostsUpdate = false;
-                    StatusMessage = "Applied enabled sources to system hosts file.";
+                    if (result.Performed)
+                    {
+                        await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: false);
+                        hostsStateTracker.MarkManagedApplySucceeded(Profiles);
+                        HasPendingElevatedHostsUpdate = false;
+                    }
+
+                    StatusMessage = result.StatusMessage;
                     break;
                 case StartupAction.RestoreBackup:
-                    await hostsFileService.RestoreBackupAsync();
-                    await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: false);
-                    HasPendingElevatedHostsUpdate = false;
-                    StatusMessage = "Hosts file restored from backup.";
+                    if (result.Performed)
+                    {
+                        await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: false);
+                        HasPendingElevatedHostsUpdate = false;
+                    }
+
+                    StatusMessage = result.StatusMessage;
                     break;
                 case StartupAction.SaveRawHosts:
-                    if (string.IsNullOrWhiteSpace(Program.StartupActionPayloadPath) ||
-                        !File.Exists(Program.StartupActionPayloadPath))
+                    if (result.Performed)
                     {
-                        StatusMessage = "Pending system hosts content was not found.";
-                        break;
+                        await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: false);
+                        localSourcesDirty = true;
+                        IsSystemHostsEditingEnabled = false;
+                        DismissSelectedSourceExternalChangeNotification();
+                        HasPendingElevatedHostsUpdate = false;
                     }
 
-                    var content = await File.ReadAllTextAsync(Program.StartupActionPayloadPath);
-                    await hostsFileService.SaveRawHostsFileAsync(content);
-                    await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: false);
-                    localSourcesDirty = true;
-                    IsSystemHostsEditingEnabled = false;
-                    DismissSelectedSourceExternalChangeNotification();
-                    HasPendingElevatedHostsUpdate = false;
-                    StatusMessage = "System hosts file saved.";
-
-                    try
-                    {
-                        File.Delete(Program.StartupActionPayloadPath);
-                    }
-                    catch
-                    {
-                    }
-
+                    StatusMessage = result.StatusMessage;
                     break;
             }
         }

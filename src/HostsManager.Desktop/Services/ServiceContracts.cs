@@ -56,6 +56,27 @@ public interface IHostsStateTracker
     void MarkManagedApplyAttempted(IEnumerable<HostProfile> sources);
 }
 
+public interface ISystemHostsWorkflowService
+{
+    string GetHostsFilePath();
+    Task<HostProfile> BuildSystemSourceAsync(CancellationToken cancellationToken = default);
+    Task<bool> HasSystemSourceChangedAsync(HostProfile systemSource, CancellationToken cancellationToken = default);
+    Task<bool> ReloadSystemSourceAsync(HostProfile systemSource, CancellationToken cancellationToken = default);
+    Task ApplyManagedHostsAsync(IEnumerable<HostProfile> sources, bool allowPrivilegePrompt = false, CancellationToken cancellationToken = default);
+    Task RestoreBackupAsync(bool allowPrivilegePrompt = false, CancellationToken cancellationToken = default);
+    Task SaveRawHostsAsync(string content, bool allowPrivilegePrompt = false, CancellationToken cancellationToken = default);
+    bool NeedsManagedApply(IEnumerable<HostProfile> sources, HostProfile? systemSource);
+    string GetPermissionDeniedMessage(bool forBackgroundApply);
+    bool CanRequestElevation();
+    bool TryRelaunchElevated(StartupAction action, bool startInBackground, string? payloadPath = null);
+    Task<string> WritePendingRawHostsPayloadAsync(string content, CancellationToken cancellationToken = default);
+    Task<StartupActionExecutionResult> ExecuteStartupActionAsync(
+        StartupAction action,
+        IEnumerable<HostProfile> sources,
+        string? payloadPath = null,
+        CancellationToken cancellationToken = default);
+}
+
 public interface IStartupRegistrationService
 {
     bool IsSupported { get; }
