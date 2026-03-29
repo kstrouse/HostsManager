@@ -35,6 +35,27 @@ public interface ILocalSourceService
     bool UpdateMissingFileState(HostProfile source);
 }
 
+public interface IRemoteSourceSyncService
+{
+    Task<IReadOnlyList<AzureSubscriptionOption>> ListAzureSubscriptionsAsync(CancellationToken cancellationToken = default);
+    Task<IReadOnlyList<AzureZoneSelectionItem>> GetAzureZoneSelectionsAsync(HostProfile profile, CancellationToken cancellationToken = default);
+    Task<bool> SyncProfileAsync(HostProfile profile, CancellationToken cancellationToken = default);
+    bool CanSyncRemoteSource(HostProfile source);
+    bool ShouldAutoRefresh(HostProfile profile, DateTimeOffset now);
+    string BuildExcludedZones(IEnumerable<AzureZoneSelectionItem> zones);
+    AzureSubscriptionOption? ResolveSelectedAzureSubscription(HostProfile profile, IEnumerable<AzureSubscriptionOption> subscriptions);
+}
+
+public interface IHostsStateTracker
+{
+    void MarkConfigurationSaved(bool minimizeToTrayOnClose, bool runAtStartup, IEnumerable<HostProfile> sources);
+    bool NeedsConfigurationSave(bool minimizeToTrayOnClose, bool runAtStartup, IEnumerable<HostProfile> sources);
+    void InitializeManagedState(IEnumerable<HostProfile> sources, bool managedHostsMatch);
+    ManagedApplyEvaluation EvaluateManagedApply(IEnumerable<HostProfile> sources, bool managedHostsMatch);
+    void MarkManagedApplySucceeded(IEnumerable<HostProfile> sources);
+    void MarkManagedApplyAttempted(IEnumerable<HostProfile> sources);
+}
+
 public interface IStartupRegistrationService
 {
     bool IsSupported { get; }

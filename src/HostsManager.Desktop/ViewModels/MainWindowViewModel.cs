@@ -7,7 +7,6 @@ using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Runtime.InteropServices;
-using System.Text;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
@@ -24,10 +23,10 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly IProfileStore profileStore;
     private readonly IHostsFileService hostsFileService;
     private readonly ILocalSourceService localSourceService;
+    private readonly IHostsStateTracker hostsStateTracker;
+    private readonly IRemoteSourceSyncService remoteSourceSyncService;
     private readonly IStartupRegistrationService startupRegistrationService;
     private readonly IWindowsElevationService windowsElevationService;
-    private readonly IAzurePrivateDnsService azurePrivateDnsService;
-    private readonly HttpClient httpClient;
     private readonly IUiTimer refreshTimer;
     private readonly IUiTimer manageTimer;
     private readonly Dictionary<string, FileSystemWatcher> localSourceWatchers;
@@ -41,9 +40,6 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool isInitialized;
     private bool isUpdatingRunAtStartup;
     private string? quickSyncProfileId;
-    private string lastAppliedSignature;
-    private string lastAttemptedSignature;
-    private string lastSavedSignature;
 
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(DeleteProfileCommand))]
@@ -158,7 +154,9 @@ public partial class MainWindowViewModel : ViewModelBase
             CreateDefaultHttpClient(),
             null,
             CreateTimer(TimeSpan.FromMinutes(1)),
-            CreateTimer(TimeSpan.FromSeconds(2)))
+            CreateTimer(TimeSpan.FromSeconds(2)),
+            null,
+            null)
     {
     }
 
@@ -171,21 +169,21 @@ public partial class MainWindowViewModel : ViewModelBase
         HttpClient httpClient,
         IAzurePrivateDnsService? azurePrivateDnsService = null,
         IUiTimer? refreshTimer = null,
-        IUiTimer? manageTimer = null)
+        IUiTimer? manageTimer = null,
+        IHostsStateTracker? hostsStateTracker = null,
+        IRemoteSourceSyncService? remoteSourceSyncService = null)
     {
         this.profileStore = profileStore;
         this.hostsFileService = hostsFileService;
         this.localSourceService = localSourceService;
+        this.hostsStateTracker = hostsStateTracker ?? new HostsStateTracker();
         this.startupRegistrationService = startupRegistrationService;
         this.windowsElevationService = windowsElevationService;
-        this.httpClient = httpClient;
-        this.azurePrivateDnsService = azurePrivateDnsService ?? new AzurePrivateDnsService(httpClient);
+        var resolvedAzurePrivateDnsService = azurePrivateDnsService ?? new AzurePrivateDnsService(httpClient);
+        this.remoteSourceSyncService = remoteSourceSyncService ?? new RemoteSourceSyncService(httpClient, resolvedAzurePrivateDnsService);
         this.refreshTimer = refreshTimer ?? CreateTimer(TimeSpan.FromMinutes(1));
         this.manageTimer = manageTimer ?? CreateTimer(TimeSpan.FromSeconds(2));
         localSourceWatchers = new Dictionary<string, FileSystemWatcher>(StringComparer.OrdinalIgnoreCase);
-        lastAppliedSignature = string.Empty;
-        lastAttemptedSignature = string.Empty;
-        lastSavedSignature = string.Empty;
         localSourcesDirty = true;
 
         this.refreshTimer.Tick += async (_, _) => await RefreshRemoteProfilesAsync(forceAll: false, userInitiated: false);
@@ -229,7 +227,7 @@ public partial class MainWindowViewModel : ViewModelBase
             SelectedProfile = Profiles.FirstOrDefault();
             InitializeManagedStateFromSystemHosts();
             await EnsureRunAtStartupMatchesPreferenceAsync();
-            lastSavedSignature = BuildPersistenceSignature();
+            hostsStateTracker.MarkConfigurationSaved(MinimizeToTrayOnClose, RunAtStartup, Profiles);
 
             refreshTimer.Start();
             manageTimer.Start();
@@ -261,7 +259,7 @@ public partial class MainWindowViewModel : ViewModelBase
         try
         {
             await SaveConfigurationAsync();
-            lastSavedSignature = BuildPersistenceSignature();
+            hostsStateTracker.MarkConfigurationSaved(MinimizeToTrayOnClose, RunAtStartup, Profiles);
             await RunBackgroundManagementTickAsync();
             StatusMessage = "Sources saved.";
         }
@@ -393,9 +391,7 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             await hostsFileService.ApplySourcesAsync(Profiles, allowPrivilegePrompt: true);
             await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: false);
-            var signature = BuildManagedSignature();
-            lastAppliedSignature = signature;
-            lastAttemptedSignature = signature;
+            hostsStateTracker.MarkManagedApplySucceeded(Profiles);
             HasPendingElevatedHostsUpdate = false;
             StatusMessage = "Applied enabled sources to system hosts file.";
         }
@@ -559,7 +555,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         try
         {
-            var subscriptions = await azurePrivateDnsService.ListSubscriptionsAsync();
+            var subscriptions = await remoteSourceSyncService.ListAzureSubscriptionsAsync();
             AzureSubscriptions.Clear();
             foreach (var subscription in subscriptions)
             {
@@ -682,7 +678,7 @@ public partial class MainWindowViewModel : ViewModelBase
                     continue;
                 }
 
-                if (!forceAll && !ShouldAutoRefresh(profile, now))
+                if (!forceAll && !remoteSourceSyncService.ShouldAutoRefresh(profile, now))
                 {
                     continue;
                 }
@@ -732,89 +728,18 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private async Task<bool> SyncProfileFromUrlAsync(HostProfile profile)
     {
-        if (profile.SourceType != SourceType.Remote)
+        if (profile.RemoteTransport == RemoteTransport.AzurePrivateDns &&
+            ReferenceEquals(profile, SelectedProfile))
         {
-            return false;
+            await RefreshAzureZonesForProfileAsync(profile, updateSelectedUi: true);
         }
 
-        if (profile.RemoteTransport == RemoteTransport.AzurePrivateDns)
-        {
-            if (string.IsNullOrWhiteSpace(profile.AzureSubscriptionId))
-            {
-                return false;
-            }
-
-            var zoneSelections = await RefreshAzureZonesForProfileAsync(
-                profile,
-                updateSelectedUi: ReferenceEquals(profile, SelectedProfile));
-
-            var enabledZones = zoneSelections
-                .Where(zone => zone.IsEnabled)
-                .Select(zone => new AzurePrivateDnsZoneInfo
-                {
-                    ZoneName = zone.ZoneName,
-                    ResourceGroup = zone.ResourceGroup
-                })
-                .ToList();
-
-            var azureEntries = await azurePrivateDnsService.BuildHostsEntriesAsync(
-                profile.AzureSubscriptionId,
-                enabledZones);
-
-            var azureChanged = !string.Equals(profile.Entries, azureEntries, StringComparison.Ordinal);
-            profile.Entries = azureEntries;
-            profile.LastSyncedAtUtc = DateTimeOffset.UtcNow;
-            return azureChanged;
-        }
-
-        if (!TryGetHttpUri(profile, out var uri))
-        {
-            return false;
-        }
-
-        var remote = await httpClient.GetStringAsync(uri);
-        var changed = !string.Equals(profile.Entries, remote, StringComparison.Ordinal);
-
-        profile.Entries = remote;
-        profile.LastSyncedAtUtc = DateTimeOffset.UtcNow;
-
-        return changed;
+        return await remoteSourceSyncService.SyncProfileAsync(profile);
     }
 
-    private static bool TryGetHttpUri(HostProfile source, out Uri? uri)
+    private bool CanSyncRemoteSource(HostProfile source)
     {
-        if (source.RemoteTransport is not (RemoteTransport.Http or RemoteTransport.Https))
-        {
-            uri = null;
-            return false;
-        }
-
-        if (!Uri.TryCreate(source.RemoteLocation, UriKind.Absolute, out uri))
-        {
-            return false;
-        }
-
-        return uri.Scheme is "http" or "https";
-    }
-
-    private static bool CanSyncRemoteSource(HostProfile source)
-    {
-        if (source.SourceType != SourceType.Remote)
-        {
-            return false;
-        }
-
-        if (!source.IsEnabled)
-        {
-            return false;
-        }
-
-        if (source.RemoteTransport == RemoteTransport.AzurePrivateDns)
-        {
-            return !string.IsNullOrWhiteSpace(source.AzureSubscriptionId);
-        }
-
-        return TryGetHttpUri(source, out _);
+        return remoteSourceSyncService.CanSyncRemoteSource(source);
     }
 
     public async Task HandleRemoteSourceToggledAsync(HostProfile? source)
@@ -883,21 +808,6 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    private static IReadOnlyCollection<string> ParseExcludedZones(string? input)
-    {
-        if (string.IsNullOrWhiteSpace(input))
-        {
-            return [];
-        }
-
-        return input
-            .Split(['\r', '\n', ',', ';'], StringSplitOptions.RemoveEmptyEntries)
-            .Select(item => item.Trim())
-            .Where(item => !string.IsNullOrWhiteSpace(item))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-    }
-
     private async Task<IReadOnlyList<AzureZoneSelectionItem>> RefreshAzureZonesForProfileAsync(HostProfile profile, bool updateSelectedUi)
     {
         if (string.IsNullOrWhiteSpace(profile.AzureSubscriptionId))
@@ -917,21 +827,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         try
         {
-            var zones = await azurePrivateDnsService.ListZonesAsync(profile.AzureSubscriptionId);
-            var disabledKeys = ParseExcludedZones(profile.AzureExcludedZones)
-                .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-            var selections = zones.Select(zone =>
-            {
-                var compositeKey = BuildZoneCompositeKey(zone.ZoneName, zone.ResourceGroup);
-                var isDisabled = disabledKeys.Contains(compositeKey) || disabledKeys.Contains(zone.ZoneName);
-                return new AzureZoneSelectionItem
-                {
-                    ZoneName = zone.ZoneName,
-                    ResourceGroup = zone.ResourceGroup,
-                    IsEnabled = !isDisabled
-                };
-            }).ToList();
+            var selections = await remoteSourceSyncService.GetAzureZoneSelectionsAsync(profile);
 
             if (updateSelectedUi)
             {
@@ -984,40 +880,7 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        var excluded = AzureZones
-            .Where(zone => !zone.IsEnabled)
-            .Select(zone => BuildZoneCompositeKey(zone.ZoneName, zone.ResourceGroup))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToArray();
-
-        SelectedProfile.AzureExcludedZones = string.Join(Environment.NewLine, excluded);
-    }
-
-    private static string BuildZoneCompositeKey(string zoneName, string resourceGroup)
-    {
-        return $"{zoneName}|{resourceGroup}";
-    }
-
-    private static bool ShouldAutoRefresh(HostProfile profile, DateTimeOffset now)
-    {
-        if (!profile.AutoRefreshFromRemote)
-        {
-            return false;
-        }
-
-        var interval = ParseIntervalMinutes(profile.RefreshIntervalMinutes);
-        var last = profile.LastSyncedAtUtc;
-        return !last.HasValue || (now - last.Value) >= TimeSpan.FromMinutes(interval);
-    }
-
-    private static int ParseIntervalMinutes(string? input)
-    {
-        if (!int.TryParse(input, out var value) || value < 1)
-        {
-            return 15;
-        }
-
-        return Math.Min(value, 1440);
+        SelectedProfile.AzureExcludedZones = remoteSourceSyncService.BuildExcludedZones(AzureZones);
     }
 
     public Task RequestImmediateReconcileAsync()
@@ -1069,32 +932,27 @@ public partial class MainWindowViewModel : ViewModelBase
                     await PersistSourcesIfChangedAsync();
                 }
 
-                var signature = BuildManagedSignature();
-                if (!NeedsElevatedApply())
+                var needsElevatedApply = NeedsElevatedApply();
+                var applyEvaluation = hostsStateTracker.EvaluateManagedApply(Profiles, managedHostsMatch: !needsElevatedApply);
+                if (!needsElevatedApply)
                 {
-                    lastAppliedSignature = signature;
-                    lastAttemptedSignature = signature;
                     HasPendingElevatedHostsUpdate = false;
                     continue;
                 }
 
-                if (string.Equals(signature, lastAttemptedSignature, StringComparison.Ordinal))
+                if (!applyEvaluation.ShouldApply)
                 {
                     continue;
                 }
-
-                var hadAppliedChangeBefore = !string.IsNullOrEmpty(lastAppliedSignature) &&
-                    !string.Equals(signature, lastAppliedSignature, StringComparison.Ordinal);
 
                 try
                 {
                     await hostsFileService.ApplySourcesAsync(Profiles);
                     var systemChangedAfterApply = await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: true);
-                    lastAppliedSignature = signature;
-                    lastAttemptedSignature = signature;
+                    hostsStateTracker.MarkManagedApplySucceeded(Profiles);
                     HasPendingElevatedHostsUpdate = false;
 
-                    if (hadAppliedChangeBefore || localContentChanged || systemChangedAfterApply)
+                    if (applyEvaluation.HadAppliedChangeBefore || localContentChanged || systemChangedAfterApply)
                     {
                         StatusMessage = "Background manager applied source changes to hosts file.";
                     }
@@ -1106,7 +964,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 }
                 catch (UnauthorizedAccessException)
                 {
-                    lastAttemptedSignature = signature;
+                    hostsStateTracker.MarkManagedApplyAttempted(Profiles);
                     if (NeedsElevatedApply())
                     {
                         SetPendingElevatedHostsUpdate(forBackgroundApply: true);
@@ -1114,7 +972,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 }
                 catch (Exception ex)
                 {
-                    lastAttemptedSignature = signature;
+                    hostsStateTracker.MarkManagedApplyAttempted(Profiles);
                     StatusMessage = $"Background apply failed: {ex.Message}";
                 }
             }
@@ -1132,8 +990,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private async Task PersistSourcesIfChangedAsync()
     {
-        var persistenceSignature = BuildPersistenceSignature();
-        if (string.Equals(persistenceSignature, lastSavedSignature, StringComparison.Ordinal))
+        if (!hostsStateTracker.NeedsConfigurationSave(MinimizeToTrayOnClose, RunAtStartup, Profiles))
         {
             return;
         }
@@ -1141,7 +998,7 @@ public partial class MainWindowViewModel : ViewModelBase
         try
         {
             await SaveConfigurationAsync();
-            lastSavedSignature = persistenceSignature;
+            hostsStateTracker.MarkConfigurationSaved(MinimizeToTrayOnClose, RunAtStartup, Profiles);
         }
         catch
         {
@@ -1258,51 +1115,6 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    private string BuildManagedSignature()
-    {
-        var builder = new StringBuilder();
-
-        foreach (var source in GetManagedSources())
-        {
-            builder.Append(source.Id).Append('|')
-                .Append(source.IsEnabled).Append('|')
-                .Append(source.SourceType).Append('|')
-                .Append(source.LocalPath).Append('|')
-                .Append(source.RemoteTransport).Append('|')
-                .Append(source.RemoteLocation).Append('|')
-                .Append(source.Entries).Append('\n');
-        }
-
-        return builder.ToString();
-    }
-
-    private string BuildPersistenceSignature()
-    {
-        var builder = new StringBuilder();
-        builder.Append("MinimizeToTrayOnClose=").Append(MinimizeToTrayOnClose).Append('\n');
-        builder.Append("RunAtStartup=").Append(RunAtStartup).Append('\n');
-
-        foreach (var source in GetPersistedSources())
-        {
-            builder.Append(source.Id).Append('|')
-                .Append(source.Name).Append('|')
-                .Append(source.IsEnabled).Append('|')
-                .Append(source.SourceType).Append('|')
-                .Append(source.LocalPath).Append('|')
-                .Append(source.RemoteTransport).Append('|')
-                .Append(source.RemoteLocation).Append('|')
-                .Append(source.AzureSubscriptionId).Append('|')
-                .Append(source.AzureSubscriptionName).Append('|')
-                .Append(source.AzureExcludedZones).Append('|')
-                .Append(source.AutoRefreshFromRemote).Append('|')
-                .Append(source.RefreshIntervalMinutes).Append('|')
-                .Append(source.LastSyncedAtUtc?.ToString("O") ?? string.Empty).Append('|')
-                .Append(source.Entries).Append('\n');
-        }
-
-        return builder.ToString();
-    }
-
     partial void OnMinimizeToTrayOnCloseChanged(bool value)
     {
         if (isInitializing)
@@ -1416,17 +1228,18 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        var match = AzureSubscriptions.FirstOrDefault(subscription =>
-            string.Equals(subscription.Id, SelectedProfile.AzureSubscriptionId, StringComparison.OrdinalIgnoreCase));
+        var match = remoteSourceSyncService.ResolveSelectedAzureSubscription(SelectedProfile, AzureSubscriptions);
 
         if (match is null)
         {
-            match = new AzureSubscriptionOption
-            {
-                Id = SelectedProfile.AzureSubscriptionId,
-                Name = SelectedProfile.AzureSubscriptionName
-            };
+            SelectedAzureSubscription = null;
+            ReplaceAzureZones([]);
+            return;
+        }
 
+        if (!AzureSubscriptions.Any(subscription =>
+                string.Equals(subscription.Id, match.Id, StringComparison.OrdinalIgnoreCase)))
+        {
             AzureSubscriptions.Insert(0, match);
         }
 
@@ -1508,11 +1321,6 @@ public partial class MainWindowViewModel : ViewModelBase
             isUpdatingRunAtStartup = false;
             StatusMessage = $"Startup option failed: {ex.Message}";
         }
-    }
-
-    private IEnumerable<HostProfile> GetManagedSources()
-    {
-        return Profiles.Where(source => !source.IsReadOnly);
     }
 
     private static ProcessStartInfo BuildOpenFolderStartInfo(string folder)
@@ -1654,15 +1462,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private void InitializeManagedStateFromSystemHosts()
     {
-        if (NeedsElevatedApply())
-        {
-            HasPendingElevatedHostsUpdate = false;
-            return;
-        }
-
-        var signature = BuildManagedSignature();
-        lastAppliedSignature = signature;
-        lastAttemptedSignature = signature;
+        hostsStateTracker.InitializeManagedState(Profiles, managedHostsMatch: !NeedsElevatedApply());
         HasPendingElevatedHostsUpdate = false;
     }
 
@@ -1743,8 +1543,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 case StartupAction.ApplyManagedHosts:
                     await hostsFileService.ApplySourcesAsync(Profiles);
                     await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: false);
-                    lastAppliedSignature = BuildManagedSignature();
-                    lastAttemptedSignature = lastAppliedSignature;
+                    hostsStateTracker.MarkManagedApplySucceeded(Profiles);
                     HasPendingElevatedHostsUpdate = false;
                     StatusMessage = "Applied enabled sources to system hosts file.";
                     break;
