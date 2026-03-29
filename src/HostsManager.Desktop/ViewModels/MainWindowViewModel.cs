@@ -247,7 +247,15 @@ public partial class MainWindowViewModel : ViewModelBase
             ApplyBackgroundManagementResult);
         SourceList = new SourceListViewModel(this);
         SelectedSourceDetails = new SelectedSourceDetailsViewModel(this);
-        LocalEditor = new LocalSourceEditorViewModel(this);
+        LocalEditor = new LocalSourceEditorViewModel(
+            this,
+            localSourceService,
+            localSourceWatcherService,
+            () => SaveProfilesAsync(),
+            () => this.backgroundManagementCoordinator.RunNowAsync(),
+            () => OnPropertyChanged(nameof(SelectedProfile)),
+            () => OnPropertyChanged(nameof(IsSelectedEntriesReadOnly)),
+            static startInfo => Process.Start(startInfo));
         RemoteEditor = new RemoteSourceEditorViewModel(this);
         SourceEditor = new SourceEditorPaneViewModel(this);
         StatusBar = new StatusActionBarViewModel(this, startupRegistrationService.IsSupported);

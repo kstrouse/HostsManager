@@ -91,9 +91,7 @@ public partial class MainWindowViewModel
         OnPropertyChanged(nameof(CanRefreshAzureZones));
         ReloadLocalSourceCommand.NotifyCanExecuteChanged();
         SaveEntriesToLocalCommand.NotifyCanExecuteChanged();
-        OpenSelectedLocalFolderCommand.NotifyCanExecuteChanged();
         ReadSelectedRemoteHostsCommand.NotifyCanExecuteChanged();
         DeleteProfileCommand.NotifyCanExecuteChanged();
-        RecreateMissingLocalFileCommand.NotifyCanExecuteChanged();
     }
 }

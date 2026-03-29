@@ -88,7 +88,7 @@ public sealed class MainWindowViewModelTests
         var vm = CreateViewModel(tempDir.Path, hostsPath);
         await vm.AddExistingLocalSourceAsync(currentPath);
 
-        await vm.RenameSelectedLocalFileAsync("renamed");
+        await vm.LocalEditor.RenameSelectedLocalFileAsync("renamed");
 
         var expectedPath = Path.Combine(tempDir.Path, "renamed.hosts");
         Assert.False(File.Exists(currentPath));

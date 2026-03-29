@@ -1,7 +1,5 @@
 using System;
-using System.Diagnostics;
 using System.IO;
-using System.Runtime.InteropServices;
 using System.Threading.Tasks;
 using CommunityToolkit.Mvvm.Input;
 using HostsManager.Desktop.Models;
@@ -21,62 +19,6 @@ public partial class MainWindowViewModel
         SelectedProfile.SourceType == SourceType.Local &&
         !SelectedProfile.IsMissingLocalFile &&
         !string.IsNullOrWhiteSpace(SelectedProfile.LocalPath);
-
-    private bool CanRecreateMissingLocalFile() =>
-        SelectedProfile is { SourceType: SourceType.Local, IsMissingLocalFile: true } profile &&
-        !string.IsNullOrWhiteSpace(profile.LocalPath);
-
-    public async Task RenameSelectedLocalFileAsync(string? requestedFileName)
-    {
-        if (SelectedProfile is null || SelectedProfile.SourceType != SourceType.Local)
-            return;
-
-        var requestedName = (requestedFileName ?? string.Empty).Trim();
-
-        try
-        {
-            await localSourceService.RenameAsync(SelectedProfile, requestedName);
-            localSourceWatcherService.MarkDirty();
-            OnPropertyChanged(nameof(SelectedProfile));
-            await SaveProfilesAsync();
-            StatusMessage = $"Renamed local file to {Path.GetFileName(SelectedProfile.LocalPath)}.";
-        }
-        catch (InvalidOperationException ex)
-        {
-            StatusMessage = ex.Message;
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = $"Rename failed: {ex.Message}";
-        }
-    }
-
-    [RelayCommand(CanExecute = nameof(CanOpenSelectedLocalFolder))]
-    private void OpenSelectedLocalFolder()
-    {
-        if (SelectedProfile is null || SelectedProfile.SourceType != SourceType.Local)
-            return;
-
-        try
-        {
-            var folder = Path.GetDirectoryName(SelectedProfile.LocalPath);
-            if (string.IsNullOrWhiteSpace(folder) || !Directory.Exists(folder))
-            {
-                StatusMessage = "Local source folder not found.";
-                return;
-            }
-
-            Process.Start(BuildOpenFolderStartInfo(folder));
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = $"Open folder failed: {ex.Message}";
-        }
-    }
-
-    private bool CanOpenSelectedLocalFolder() =>
-        SelectedProfile is { SourceType: SourceType.Local } profile &&
-        !string.IsNullOrWhiteSpace(profile.LocalPath);
 
     [RelayCommand(CanExecute = nameof(CanReloadLocalSource))]
     private async Task ReloadLocalSourceAsync()
@@ -138,39 +80,6 @@ public partial class MainWindowViewModel
         catch (Exception ex)
         {
             StatusMessage = $"Save local failed: {ex.Message}";
-        }
-    }
-
-    [RelayCommand(CanExecute = nameof(CanRecreateMissingLocalFile))]
-    private async Task RecreateMissingLocalFileAsync()
-    {
-        if (SelectedProfile is not { SourceType: SourceType.Local, IsMissingLocalFile: true } profile ||
-            string.IsNullOrWhiteSpace(profile.LocalPath))
-            return;
-
-        try
-        {
-            await localSourceService.RecreateMissingFileAsync(profile);
-            localSourceWatcherService.MarkDirty();
-
-            OnPropertyChanged(nameof(SelectedProfile));
-            OnPropertyChanged(nameof(IsSelectedEntriesReadOnly));
-            ReloadLocalSourceCommand.NotifyCanExecuteChanged();
-            SaveEntriesToLocalCommand.NotifyCanExecuteChanged();
-            SaveSelectedSourceCommand.NotifyCanExecuteChanged();
-            RecreateMissingLocalFileCommand.NotifyCanExecuteChanged();
-
-            await SaveProfilesAsync();
-            await backgroundManagementCoordinator.RunNowAsync();
-            StatusMessage = $"Re-created local source file: {Path.GetFileName(profile.LocalPath)}";
-        }
-        catch (InvalidOperationException ex)
-        {
-            StatusMessage = ex.Message;
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = $"Re-create local file failed: {ex.Message}";
         }
     }
 
@@ -249,34 +158,7 @@ public partial class MainWindowViewModel
             ReloadLocalSourceCommand.NotifyCanExecuteChanged();
             SaveEntriesToLocalCommand.NotifyCanExecuteChanged();
             SaveSelectedSourceCommand.NotifyCanExecuteChanged();
-            RecreateMissingLocalFileCommand.NotifyCanExecuteChanged();
             OnPropertyChanged(nameof(IsSelectedEntriesReadOnly));
         }
-    }
-
-    private static ProcessStartInfo BuildOpenFolderStartInfo(string folder)
-    {
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
-            return new ProcessStartInfo
-            {
-                FileName = "explorer.exe",
-                Arguments = $"\"{folder}\"",
-                UseShellExecute = true
-            };
-
-        if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-            return new ProcessStartInfo
-            {
-                FileName = "open",
-                Arguments = $"\"{folder}\"",
-                UseShellExecute = false
-            };
-
-        return new ProcessStartInfo
-        {
-            FileName = "xdg-open",
-            Arguments = $"\"{folder}\"",
-            UseShellExecute = false
-        };
     }
 }
