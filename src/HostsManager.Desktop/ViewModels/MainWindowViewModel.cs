@@ -102,10 +102,10 @@ public partial class MainWindowViewModel : ViewModelBase
     public SelectedSourceDetailsViewModel SelectedSourceDetails { get; }
     public LocalSourceEditorViewModel LocalEditor { get; }
     public RemoteSourceEditorViewModel RemoteEditor { get; }
+    public StatusActionBarViewModel StatusBar { get; }
 
     public string HostsPath { get; }
     public bool CanLoadAzureSubscriptions => !IsAzureSubscriptionsLoading;
-    public bool CanConfigureRunAtStartup => startupRegistrationService.IsSupported;
     public bool CanRefreshAzureZones => !IsAzureZonesLoading &&
         SelectedProfile is not null &&
         SelectedProfile.SourceType == SourceType.Remote &&
@@ -248,6 +248,7 @@ public partial class MainWindowViewModel : ViewModelBase
         SelectedSourceDetails = new SelectedSourceDetailsViewModel(this);
         LocalEditor = new LocalSourceEditorViewModel(this);
         RemoteEditor = new RemoteSourceEditorViewModel(this);
+        StatusBar = new StatusActionBarViewModel(this, startupRegistrationService.IsSupported);
 
         this.refreshTimer.Tick += async (_, _) => await RefreshRemoteProfilesAsync(forceAll: false, userInitiated: false);
 
