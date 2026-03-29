@@ -22,6 +22,7 @@ public partial class MainWindowViewModel : ViewModelBase
 {
     private readonly IProfileStore profileStore;
     private readonly ILocalSourceService localSourceService;
+    private readonly ILocalSourceRefreshService localSourceRefreshService;
     private readonly ILocalSourceWatcherService localSourceWatcherService;
     private readonly IHostsStateTracker hostsStateTracker;
     private readonly IRemoteSourceSyncService remoteSourceSyncService;
@@ -147,6 +148,7 @@ public partial class MainWindowViewModel : ViewModelBase
             new ProfileStore(),
             new HostsFileService(),
             new LocalSourceService(),
+            null,
             new LocalSourceWatcherService(),
             new StartupRegistrationService(),
             new WindowsElevationService(),
@@ -164,6 +166,7 @@ public partial class MainWindowViewModel : ViewModelBase
         IProfileStore profileStore,
         IHostsFileService hostsFileService,
         ILocalSourceService localSourceService,
+        ILocalSourceRefreshService? localSourceRefreshService,
         ILocalSourceWatcherService localSourceWatcherService,
         IStartupRegistrationService startupRegistrationService,
         IWindowsElevationService windowsElevationService,
@@ -177,14 +180,16 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         this.profileStore = profileStore;
         this.localSourceService = localSourceService;
-        this.localSourceWatcherService = localSourceWatcherService;
-        this.hostsStateTracker = hostsStateTracker ?? new HostsStateTracker();
-        this.startupRegistrationService = startupRegistrationService;
-        this.systemHostsWorkflowService = systemHostsWorkflowService ?? new SystemHostsWorkflowService(
+        var resolvedSystemHostsWorkflowService = systemHostsWorkflowService ?? new SystemHostsWorkflowService(
             hostsFileService,
             localSourceService,
             profileStore,
             windowsElevationService);
+        this.localSourceRefreshService = localSourceRefreshService ?? new LocalSourceRefreshService(localSourceService, resolvedSystemHostsWorkflowService);
+        this.localSourceWatcherService = localSourceWatcherService;
+        this.hostsStateTracker = hostsStateTracker ?? new HostsStateTracker();
+        this.startupRegistrationService = startupRegistrationService;
+        this.systemHostsWorkflowService = resolvedSystemHostsWorkflowService;
         var resolvedAzurePrivateDnsService = azurePrivateDnsService ?? new AzurePrivateDnsService(httpClient);
         this.remoteSourceSyncService = remoteSourceSyncService ?? new RemoteSourceSyncService(httpClient, resolvedAzurePrivateDnsService);
         this.refreshTimer = refreshTimer ?? CreateTimer(TimeSpan.FromMinutes(1));
@@ -1018,39 +1023,23 @@ public partial class MainWindowViewModel : ViewModelBase
             return changed;
         }
 
-        foreach (var source in Profiles)
+        var refreshResult = await localSourceRefreshService.RefreshLocalSourcesAsync(Profiles, SelectedProfile);
+        foreach (var source in refreshResult.MissingStateChangedSources)
         {
-            var isFileBacked = source.SourceType == SourceType.Local;
-            if (!isFileBacked || string.IsNullOrWhiteSpace(source.LocalPath))
-            {
-                continue;
-            }
-
-            if (HandleMissingLocalSourceState(source))
-            {
-                changed = true;
-                if (ReferenceEquals(source, SelectedProfile))
-                {
-                    OnPropertyChanged(nameof(SelectedProfile));
-                }
-
-                continue;
-            }
-
-            if (ReferenceEquals(source, SelectedProfile))
-            {
-                if (await localSourceService.HasDiskContentChangedAsync(source))
-                {
-                    SetSelectedSourceExternalChangeNotification(source);
-                }
-
-                continue;
-            }
-
-            changed |= await localSourceService.ReloadFromDiskAsync(source);
+            ApplyMissingLocalSourceStateChanged(source);
         }
 
-        return changed;
+        if (refreshResult.SelectedSourceWithExternalChanges is not null)
+        {
+            SetSelectedSourceExternalChangeNotification(refreshResult.SelectedSourceWithExternalChanges);
+        }
+
+        if (refreshResult.SelectedProfileChanged)
+        {
+            OnPropertyChanged(nameof(SelectedProfile));
+        }
+
+        return changed || refreshResult.AnyContentChanged;
     }
 
     partial void OnMinimizeToTrayOnCloseChanged(bool value)
@@ -1304,35 +1293,30 @@ public partial class MainWindowViewModel : ViewModelBase
     private async Task<bool> RefreshSystemHostsSourceSnapshotAsync(bool announceWhenChanged, bool skipSelectedProfile = false)
     {
         var systemSource = GetSystemSource();
-        if (systemSource is null)
+        var refreshResult = await localSourceRefreshService.RefreshSystemSourceAsync(
+            systemSource,
+            SelectedProfile,
+            announceWhenChanged,
+            skipSelectedProfile);
+
+        if (refreshResult.ExternalChangeDetected && systemSource is not null)
         {
-            return false;
+            SetSelectedSourceExternalChangeNotification(systemSource);
         }
 
-        if (skipSelectedProfile && ReferenceEquals(SelectedProfile, systemSource))
-        {
-            if (await systemHostsWorkflowService.HasSystemSourceChangedAsync(systemSource))
-            {
-                SetSelectedSourceExternalChangeNotification(systemSource);
-            }
-
-            return false;
-        }
-
-        var changed = await systemHostsWorkflowService.ReloadSystemSourceAsync(systemSource);
-        if (changed && ReferenceEquals(SelectedProfile, systemSource))
+        if (refreshResult.SelectedProfileChanged)
         {
             var current = SelectedProfile;
             SelectedProfile = null;
             SelectedProfile = current;
-
-            if (announceWhenChanged)
-            {
-                systemHostsRefreshPulseRequested = true;
-            }
         }
 
-        return changed;
+        if (refreshResult.RefreshPulseRequested)
+        {
+            systemHostsRefreshPulseRequested = true;
+        }
+
+        return refreshResult.Changed;
     }
 
     private HostProfile? GetSystemSource()

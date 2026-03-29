@@ -226,6 +226,7 @@ public sealed class MainWindowViewModelTests
             profileStore ?? new ProfileStore(Path.Combine(tempRoot, "config")),
             hostsService,
             new LocalSourceService(),
+            null,
             new LocalSourceWatcherService(),
             new FakeStartupRegistrationService(),
             new FakeWindowsElevationService(),

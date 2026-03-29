@@ -84,6 +84,21 @@ public interface ILocalSourceWatcherService : IDisposable
     bool ConsumeDirty();
 }
 
+public interface ILocalSourceRefreshService
+{
+    Task<SystemSourceRefreshResult> RefreshSystemSourceAsync(
+        HostProfile? systemSource,
+        HostProfile? selectedProfile,
+        bool announceWhenChanged,
+        bool skipSelectedProfile,
+        CancellationToken cancellationToken = default);
+
+    Task<LocalSourceRefreshResult> RefreshLocalSourcesAsync(
+        IEnumerable<HostProfile> sources,
+        HostProfile? selectedProfile,
+        CancellationToken cancellationToken = default);
+}
+
 public interface IStartupRegistrationService
 {
     bool IsSupported { get; }

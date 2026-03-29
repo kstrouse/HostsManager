@@ -192,14 +192,8 @@ public partial class MainWindowViewModel
         SelectedSourceExternalChangeName = string.Empty;
     }
 
-    private bool HandleMissingLocalSourceState(HostProfile source)
+    private void ApplyMissingLocalSourceStateChanged(HostProfile source)
     {
-        var changed = localSourceService.UpdateMissingFileState(source);
-        if (!changed)
-        {
-            return false;
-        }
-
         if (source.IsMissingLocalFile)
         {
             StatusMessage = $"Local source file not found. Source disabled: {source.Name}";
@@ -214,7 +208,5 @@ public partial class MainWindowViewModel
             OnPropertyChanged(nameof(IsSelectedEntriesReadOnly));
             OnPropertyChanged(nameof(IsSelectedLocalFileMissing));
         }
-
-        return true;
     }
 }
