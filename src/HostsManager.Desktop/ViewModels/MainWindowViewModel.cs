@@ -29,6 +29,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly IBackgroundManagementCoordinator backgroundManagementCoordinator;
     private readonly IHostsStateTracker hostsStateTracker;
     private readonly IProfilePersistenceService profilePersistenceService;
+    private readonly ISystemHostsCommandService systemHostsCommandService;
     private readonly IRemoteSourceSyncService remoteSourceSyncService;
     private readonly IRemoteSyncWorkflowService remoteSyncWorkflowService;
     private readonly IProfileSelectionService profileSelectionService;
@@ -167,6 +168,7 @@ public partial class MainWindowViewModel : ViewModelBase
             null,
             null,
             null,
+            null,
             null)
     {
     }
@@ -187,6 +189,7 @@ public partial class MainWindowViewModel : ViewModelBase
         IBackgroundManagementCoordinator? backgroundManagementCoordinator = null,
         IHostsStateTracker? hostsStateTracker = null,
         IProfilePersistenceService? profilePersistenceService = null,
+        ISystemHostsCommandService? systemHostsCommandService = null,
         ISystemHostsWorkflowService? systemHostsWorkflowService = null,
         IRemoteSourceSyncService? remoteSourceSyncService = null,
         IRemoteSyncWorkflowService? remoteSyncWorkflowService = null,
@@ -204,6 +207,7 @@ public partial class MainWindowViewModel : ViewModelBase
         this.localSourceWatcherService = localSourceWatcherService;
         this.hostsStateTracker = hostsStateTracker ?? new HostsStateTracker();
         this.profilePersistenceService = profilePersistenceService ?? new ProfilePersistenceService(profileStore, this.hostsStateTracker);
+        this.systemHostsCommandService = systemHostsCommandService ?? new SystemHostsCommandService(resolvedSystemHostsWorkflowService);
         this.backgroundManagementService = backgroundManagementService ?? new BackgroundManagementService(
             profileStore,
             this.hostsStateTracker,
@@ -457,22 +461,8 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        try
-        {
-            await systemHostsWorkflowService.ApplyManagedHostsAsync(Profiles, allowPrivilegePrompt: true);
-            await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: false);
-            hostsStateTracker.MarkManagedApplySucceeded(Profiles);
-            HasPendingElevatedHostsUpdate = false;
-            StatusMessage = "Applied enabled sources to system hosts file.";
-        }
-        catch (UnauthorizedAccessException)
-        {
-            SetPendingElevatedHostsUpdate(forBackgroundApply: false);
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = $"Apply failed: {ex.Message}";
-        }
+        var result = await systemHostsCommandService.ApplyManagedHostsAsync(Profiles);
+        await ApplySystemHostsCommandResultAsync(result);
     }
 
     [RelayCommand]
@@ -483,21 +473,8 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        try
-        {
-            await systemHostsWorkflowService.RestoreBackupAsync(allowPrivilegePrompt: true);
-            await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: false);
-            HasPendingElevatedHostsUpdate = false;
-            StatusMessage = "Hosts file restored from backup.";
-        }
-        catch (UnauthorizedAccessException)
-        {
-            SetPendingElevatedHostsUpdate(forBackgroundApply: false);
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = $"Restore failed: {ex.Message}";
-        }
+        var result = await systemHostsCommandService.RestoreBackupAsync();
+        await ApplySystemHostsCommandResultAsync(result);
     }
 
     [RelayCommand(CanExecute = nameof(CanReloadLocalSource))]
@@ -692,24 +669,8 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        try
-        {
-            await systemHostsWorkflowService.SaveRawHostsAsync(profile.Entries ?? string.Empty, allowPrivilegePrompt: true);
-            await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: false);
-            localSourceWatcherService.MarkDirty();
-            IsSystemHostsEditingEnabled = false;
-            DismissSelectedSourceExternalChangeNotification();
-            HasPendingElevatedHostsUpdate = false;
-            StatusMessage = "System hosts file saved.";
-        }
-        catch (UnauthorizedAccessException)
-        {
-            SetPendingElevatedHostsUpdate(forBackgroundApply: false);
-        }
-        catch (Exception ex)
-        {
-            StatusMessage = $"Save system hosts failed: {ex.Message}";
-        }
+        var result = await systemHostsCommandService.SaveRawHostsAsync(profile.Entries ?? string.Empty);
+        await ApplySystemHostsCommandResultAsync(result);
     }
 
 
@@ -836,6 +797,44 @@ public partial class MainWindowViewModel : ViewModelBase
         if (result.ShouldRunBackgroundManagement)
         {
             await backgroundManagementCoordinator.RunNowAsync();
+        }
+
+        if (!string.IsNullOrWhiteSpace(result.StatusMessage))
+        {
+            StatusMessage = result.StatusMessage;
+        }
+    }
+
+    private async Task ApplySystemHostsCommandResultAsync(SystemHostsCommandResult result)
+    {
+        if (result.RefreshSystemSourceSnapshot)
+        {
+            await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: false);
+        }
+
+        if (result.MarkManagedApplySucceeded)
+        {
+            hostsStateTracker.MarkManagedApplySucceeded(Profiles);
+        }
+
+        if (result.MarkLocalSourcesDirty)
+        {
+            localSourceWatcherService.MarkDirty();
+        }
+
+        if (result.DisableSystemHostsEditing)
+        {
+            IsSystemHostsEditingEnabled = false;
+        }
+
+        if (result.DismissSelectedSourceExternalChangeNotification)
+        {
+            DismissSelectedSourceExternalChangeNotification();
+        }
+
+        if (result.PendingElevatedHostsUpdate.HasValue)
+        {
+            HasPendingElevatedHostsUpdate = result.PendingElevatedHostsUpdate.Value;
         }
 
         if (!string.IsNullOrWhiteSpace(result.StatusMessage))
@@ -1229,13 +1228,6 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         SelectedSourceExternalChangeName = source.Name;
         SelectedSourceChangedExternally = true;
-    }
-
-
-    private void SetPendingElevatedHostsUpdate(bool forBackgroundApply)
-    {
-        HasPendingElevatedHostsUpdate = true;
-        StatusMessage = systemHostsWorkflowService.GetPermissionDeniedMessage(forBackgroundApply);
     }
 
     private void InitializeManagedStateFromSystemHosts()

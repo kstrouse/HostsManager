@@ -188,6 +188,20 @@ public interface IProfilePersistenceService
         CancellationToken cancellationToken = default);
 }
 
+public interface ISystemHostsCommandService
+{
+    Task<SystemHostsCommandResult> ApplyManagedHostsAsync(
+        IEnumerable<HostProfile> profiles,
+        CancellationToken cancellationToken = default);
+
+    Task<SystemHostsCommandResult> RestoreBackupAsync(
+        CancellationToken cancellationToken = default);
+
+    Task<SystemHostsCommandResult> SaveRawHostsAsync(
+        string content,
+        CancellationToken cancellationToken = default);
+}
+
 public interface IStartupRegistrationService
 {
     bool IsSupported { get; }
