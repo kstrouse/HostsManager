@@ -86,6 +86,7 @@ internal sealed class FakeAzurePrivateDnsService : IAzurePrivateDnsService
     public IReadOnlyList<AzureSubscriptionOption> Subscriptions { get; set; } = [];
     public IReadOnlyList<AzurePrivateDnsZoneInfo> Zones { get; set; } = [];
     public string HostsEntries { get; set; } = string.Empty;
+    public int ListZonesCallCount { get; private set; }
 
     public Task<IReadOnlyList<AzureSubscriptionOption>> ListSubscriptionsAsync(CancellationToken cancellationToken = default)
     {
@@ -94,6 +95,7 @@ internal sealed class FakeAzurePrivateDnsService : IAzurePrivateDnsService
 
     public Task<IReadOnlyList<AzurePrivateDnsZoneInfo>> ListZonesAsync(string subscriptionId, CancellationToken cancellationToken = default)
     {
+        ListZonesCallCount++;
         return Task.FromResult(Zones);
     }
 

@@ -121,6 +121,18 @@ public interface IBackgroundManagementCoordinator
     Task RequestImmediateReconcileAsync(CancellationToken cancellationToken = default);
 }
 
+public interface IProfileSelectionService
+{
+    SelectedProfileChange EvaluateSelectedProfile(
+        HostProfile? selectedProfile,
+        bool isSystemHostsEditingEnabled,
+        IEnumerable<AzureSubscriptionOption> subscriptions);
+
+    AzureSubscriptionSelectionChange? CreateAzureSubscriptionSelectionChange(
+        HostProfile? selectedProfile,
+        AzureSubscriptionOption? selectedSubscription);
+}
+
 public interface IStartupRegistrationService
 {
     bool IsSupported { get; }

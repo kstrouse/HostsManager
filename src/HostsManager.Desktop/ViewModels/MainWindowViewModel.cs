@@ -28,6 +28,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly IBackgroundManagementCoordinator backgroundManagementCoordinator;
     private readonly IHostsStateTracker hostsStateTracker;
     private readonly IRemoteSourceSyncService remoteSourceSyncService;
+    private readonly IProfileSelectionService profileSelectionService;
     private readonly IStartupRegistrationService startupRegistrationService;
     private readonly ISystemHostsWorkflowService systemHostsWorkflowService;
     private readonly IUiTimer refreshTimer;
@@ -35,6 +36,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool isInitializing;
     private bool isInitialized;
     private bool isUpdatingRunAtStartup;
+    private bool isSyncingSelectedAzureSubscription;
     private string? quickSyncProfileId;
 
     [ObservableProperty]
@@ -177,7 +179,8 @@ public partial class MainWindowViewModel : ViewModelBase
         IBackgroundManagementCoordinator? backgroundManagementCoordinator = null,
         IHostsStateTracker? hostsStateTracker = null,
         ISystemHostsWorkflowService? systemHostsWorkflowService = null,
-        IRemoteSourceSyncService? remoteSourceSyncService = null)
+        IRemoteSourceSyncService? remoteSourceSyncService = null,
+        IProfileSelectionService? profileSelectionService = null)
     {
         this.profileStore = profileStore;
         this.localSourceService = localSourceService;
@@ -199,6 +202,7 @@ public partial class MainWindowViewModel : ViewModelBase
         this.systemHostsWorkflowService = resolvedSystemHostsWorkflowService;
         var resolvedAzurePrivateDnsService = azurePrivateDnsService ?? new AzurePrivateDnsService(httpClient);
         this.remoteSourceSyncService = remoteSourceSyncService ?? new RemoteSourceSyncService(httpClient, resolvedAzurePrivateDnsService);
+        this.profileSelectionService = profileSelectionService ?? new ProfileSelectionService(this.remoteSourceSyncService);
         this.refreshTimer = refreshTimer ?? CreateTimer(TimeSpan.FromMinutes(1));
         var resolvedManageTimer = manageTimer ?? CreateTimer(TimeSpan.FromSeconds(2));
         this.backgroundManagementCoordinator = backgroundManagementCoordinator ?? new BackgroundManagementCoordinator(
@@ -587,7 +591,10 @@ public partial class MainWindowViewModel : ViewModelBase
                 AzureSubscriptions.Add(subscription);
             }
 
-            SyncSelectedAzureSubscription();
+            ApplySelectedProfileChange(profileSelectionService.EvaluateSelectedProfile(
+                SelectedProfile,
+                IsSystemHostsEditingEnabled,
+                AzureSubscriptions));
             StatusMessage = subscriptions.Count == 0
                 ? "No enabled Azure subscriptions found."
                 : $"Loaded {subscriptions.Count} Azure subscription(s).";
@@ -970,49 +977,40 @@ public partial class MainWindowViewModel : ViewModelBase
 
     partial void OnSelectedProfileChanged(HostProfile? value)
     {
-        if (value?.SourceType != SourceType.System && IsSystemHostsEditingEnabled)
+        var change = profileSelectionService.EvaluateSelectedProfile(value, IsSystemHostsEditingEnabled, AzureSubscriptions);
+
+        if (change.DisableSystemHostsEditing)
         {
             IsSystemHostsEditingEnabled = false;
         }
 
         DismissSelectedSourceExternalChangeNotification();
 
-        SyncSelectedAzureSubscription();
-        _ = RefreshAzureZonesForCurrentSelectionAsync();
-        OnPropertyChanged(nameof(IsSelectedSourceReadOnly));
-        OnPropertyChanged(nameof(IsSelectedEntriesReadOnly));
-        OnPropertyChanged(nameof(SelectedSourceTypeDisplay));
-        OnPropertyChanged(nameof(IsSystemSelected));
-        OnPropertyChanged(nameof(IsLocalSelected));
-        OnPropertyChanged(nameof(IsRemoteSelected));
-        OnPropertyChanged(nameof(IsHttpRemoteSelected));
-        OnPropertyChanged(nameof(IsAzurePrivateDnsRemoteSelected));
-        OnPropertyChanged(nameof(SelectedLocalFilePath));
-        OnPropertyChanged(nameof(SelectedLocalFolderPath));
-        OnPropertyChanged(nameof(IsSelectedLocalFileMissing));
-        OnPropertyChanged(nameof(CanRefreshAzureZones));
-        ReloadLocalSourceCommand.NotifyCanExecuteChanged();
-        SaveEntriesToLocalCommand.NotifyCanExecuteChanged();
-        OpenSelectedLocalFolderCommand.NotifyCanExecuteChanged();
-        ReadSelectedRemoteHostsCommand.NotifyCanExecuteChanged();
-        DeleteProfileCommand.NotifyCanExecuteChanged();
-        RecreateMissingLocalFileCommand.NotifyCanExecuteChanged();
+        ApplySelectedProfileChange(change);
+        NotifySelectedProfileStateChanged();
     }
 
     partial void OnSelectedAzureSubscriptionChanged(AzureSubscriptionOption? value)
     {
-        if (SelectedProfile is null || SelectedProfile.SourceType != SourceType.Remote)
+        if (isSyncingSelectedAzureSubscription)
         {
             return;
         }
 
-        if (value is null)
+        var change = profileSelectionService.CreateAzureSubscriptionSelectionChange(SelectedProfile, value);
+        if (change is null)
         {
             return;
         }
 
-        SelectedProfile.AzureSubscriptionId = value.Id;
-        SelectedProfile.AzureSubscriptionName = value.Name;
+        var selectedProfile = SelectedProfile;
+        if (selectedProfile is null)
+        {
+            return;
+        }
+
+        selectedProfile.AzureSubscriptionId = change.SubscriptionId;
+        selectedProfile.AzureSubscriptionName = change.SubscriptionName;
         _ = RefreshAzureZonesForCurrentSelectionAsync();
         OnPropertyChanged(nameof(CanRefreshAzureZones));
     }
@@ -1039,44 +1037,57 @@ public partial class MainWindowViewModel : ViewModelBase
             : "System hosts editing disabled.";
     }
 
-    private void SyncSelectedAzureSubscription()
+    private void ApplySelectedProfileChange(SelectedProfileChange change)
     {
-        if (SelectedProfile is null || SelectedProfile.SourceType != SourceType.Remote)
-        {
-            SelectedAzureSubscription = null;
-            ReplaceAzureZones([]);
-            return;
-        }
-
-        if (SelectedProfile.RemoteTransport != RemoteTransport.AzurePrivateDns)
+        if (change.ClearAzureZones)
         {
             ReplaceAzureZones([]);
-            return;
         }
 
-        if (string.IsNullOrWhiteSpace(SelectedProfile.AzureSubscriptionId))
+        if (change.SubscriptionToInsert is not null)
         {
-            SelectedAzureSubscription = null;
-            ReplaceAzureZones([]);
-            return;
+            AzureSubscriptions.Insert(0, change.SubscriptionToInsert);
         }
 
-        var match = remoteSourceSyncService.ResolveSelectedAzureSubscription(SelectedProfile, AzureSubscriptions);
-
-        if (match is null)
+        if (change.ShouldUpdateSelectedAzureSubscription)
         {
-            SelectedAzureSubscription = null;
-            ReplaceAzureZones([]);
-            return;
+            isSyncingSelectedAzureSubscription = true;
+            try
+            {
+                SelectedAzureSubscription = change.SelectedAzureSubscription;
+            }
+            finally
+            {
+                isSyncingSelectedAzureSubscription = false;
+            }
         }
 
-        if (!AzureSubscriptions.Any(subscription =>
-                string.Equals(subscription.Id, match.Id, StringComparison.OrdinalIgnoreCase)))
+        if (change.RefreshAzureZones)
         {
-            AzureSubscriptions.Insert(0, match);
+            _ = RefreshAzureZonesForCurrentSelectionAsync();
         }
+    }
 
-        SelectedAzureSubscription = match;
+    private void NotifySelectedProfileStateChanged()
+    {
+        OnPropertyChanged(nameof(IsSelectedSourceReadOnly));
+        OnPropertyChanged(nameof(IsSelectedEntriesReadOnly));
+        OnPropertyChanged(nameof(SelectedSourceTypeDisplay));
+        OnPropertyChanged(nameof(IsSystemSelected));
+        OnPropertyChanged(nameof(IsLocalSelected));
+        OnPropertyChanged(nameof(IsRemoteSelected));
+        OnPropertyChanged(nameof(IsHttpRemoteSelected));
+        OnPropertyChanged(nameof(IsAzurePrivateDnsRemoteSelected));
+        OnPropertyChanged(nameof(SelectedLocalFilePath));
+        OnPropertyChanged(nameof(SelectedLocalFolderPath));
+        OnPropertyChanged(nameof(IsSelectedLocalFileMissing));
+        OnPropertyChanged(nameof(CanRefreshAzureZones));
+        ReloadLocalSourceCommand.NotifyCanExecuteChanged();
+        SaveEntriesToLocalCommand.NotifyCanExecuteChanged();
+        OpenSelectedLocalFolderCommand.NotifyCanExecuteChanged();
+        ReadSelectedRemoteHostsCommand.NotifyCanExecuteChanged();
+        DeleteProfileCommand.NotifyCanExecuteChanged();
+        RecreateMissingLocalFileCommand.NotifyCanExecuteChanged();
     }
 
     private async Task RefreshAzureZonesForCurrentSelectionAsync()

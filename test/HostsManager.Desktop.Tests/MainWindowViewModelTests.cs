@@ -212,6 +212,41 @@ public sealed class MainWindowViewModelTests
         Assert.Equal("b.internal|rg-b", source.AzureExcludedZones.Replace("\r\n", "\n"));
     }
 
+    [Fact]
+    public async Task SelectingAzureProfile_LoadsZonesOnceAndAddsPlaceholderSubscription()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        using var tempDir = new TempDirectory();
+        var hostsPath = Path.Combine(tempDir.Path, "system-hosts");
+        await File.WriteAllTextAsync(hostsPath, "127.0.0.1 localhost\n", cancellationToken);
+        var azure = new FakeAzurePrivateDnsService
+        {
+            Zones =
+            [
+                new AzurePrivateDnsZoneInfo { ZoneName = "a.internal", ResourceGroup = "rg-a" }
+            ]
+        };
+        var vm = CreateViewModel(tempDir.Path, hostsPath, azureService: azure);
+        var source = new HostProfile
+        {
+            Name = "Azure Remote",
+            IsEnabled = true,
+            SourceType = SourceType.Remote,
+            RemoteTransport = RemoteTransport.AzurePrivateDns,
+            AzureSubscriptionId = "sub-imported",
+            AzureSubscriptionName = "Imported"
+        };
+        vm.Profiles.Add(source);
+
+        vm.SelectedProfile = source;
+        await Task.Yield();
+
+        Assert.Equal(1, azure.ListZonesCallCount);
+        Assert.Single(vm.AzureSubscriptions);
+        Assert.Equal("sub-imported", vm.SelectedAzureSubscription?.Id);
+        Assert.Single(vm.AzureZones);
+    }
+
     private static MainWindowViewModel CreateViewModel(
         string tempRoot,
         string hostsPath,
