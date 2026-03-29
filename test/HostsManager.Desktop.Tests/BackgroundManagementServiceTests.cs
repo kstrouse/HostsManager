@@ -59,7 +59,7 @@ public sealed class BackgroundManagementServiceTests
         }, cancellationToken);
 
         Assert.True(result.SelectedProfileChanged);
-        Assert.False(result.HasPendingElevatedHostsUpdate);
+        Assert.Equal(false, result.PendingElevatedHostsUpdate);
         Assert.Same(systemSource, result.SourceWithExternalChanges);
         Assert.Single(result.MissingStateChangedSources);
         Assert.Equal(1, refresh.LocalRefreshCalls);
@@ -94,8 +94,46 @@ public sealed class BackgroundManagementServiceTests
             SelectedProfile = profiles[0]
         }, cancellationToken);
 
-        Assert.True(result.HasPendingElevatedHostsUpdate);
+        Assert.Equal(true, result.PendingElevatedHostsUpdate);
         Assert.Equal(workflow.GetPermissionDeniedMessage(true), result.StatusMessage);
+    }
+
+    [Fact]
+    public async Task RunPassAsync_DoesNotClearPendingElevationWhenRetryIsSuppressed()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        var profiles = CreateProfiles();
+        var workflow = new StubSystemHostsWorkflowService
+        {
+            NeedsManagedApplyResult = true,
+            ApplyException = new UnauthorizedAccessException("denied")
+        };
+        using var watcher = new LocalSourceWatcherService(new LocalSourceWatcherServiceTestsFactory());
+        watcher.ConsumeDirty();
+        var tracker = new HostsStateTracker();
+        tracker.InitializeManagedState(profiles, managedHostsMatch: true);
+        profiles[1].Entries = "10.0.0.5 changed.remote";
+        var service = new BackgroundManagementService(
+            new TrackingProfileStore(),
+            tracker,
+            watcher,
+            CreateRefreshServiceWithSystemResults(new SystemSourceRefreshResult(), new SystemSourceRefreshResult()),
+            workflow);
+
+        var first = await service.RunPassAsync(new BackgroundManagementRequest
+        {
+            Profiles = profiles,
+            SelectedProfile = profiles[0]
+        }, cancellationToken);
+
+        var second = await service.RunPassAsync(new BackgroundManagementRequest
+        {
+            Profiles = profiles,
+            SelectedProfile = profiles[0]
+        }, cancellationToken);
+
+        Assert.Equal(true, first.PendingElevatedHostsUpdate);
+        Assert.Null(second.PendingElevatedHostsUpdate);
     }
 
     [Fact]
@@ -127,7 +165,7 @@ public sealed class BackgroundManagementServiceTests
 
         Assert.True(workflow.ApplyCalled);
         Assert.True(result.SelectedProfileChanged);
-        Assert.False(result.HasPendingElevatedHostsUpdate);
+        Assert.Equal(false, result.PendingElevatedHostsUpdate);
         Assert.Equal("Background manager applied source changes to hosts file.", result.StatusMessage);
     }
 

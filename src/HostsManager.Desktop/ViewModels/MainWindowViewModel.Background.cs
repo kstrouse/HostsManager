@@ -33,7 +33,9 @@ public partial class MainWindowViewModel
         if (result.SelectedProfileChanged)
             OnPropertyChanged(nameof(SelectedProfile));
 
-        HasPendingElevatedHostsUpdate = result.HasPendingElevatedHostsUpdate;
+        if (result.PendingElevatedHostsUpdate.HasValue)
+            HasPendingElevatedHostsUpdate = result.PendingElevatedHostsUpdate.Value;
+
         if (!string.IsNullOrWhiteSpace(result.StatusMessage))
             StatusMessage = result.StatusMessage;
     }

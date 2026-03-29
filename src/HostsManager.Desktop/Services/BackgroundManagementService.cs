@@ -18,7 +18,7 @@ public sealed class BackgroundManagementRequest
 public sealed class BackgroundManagementResult
 {
     public bool SelectedProfileChanged { get; init; }
-    public bool HasPendingElevatedHostsUpdate { get; init; }
+    public bool? PendingElevatedHostsUpdate { get; init; }
     public string? StatusMessage { get; init; }
     public HostProfile? SourceWithExternalChanges { get; init; }
     public IReadOnlyList<HostProfile> MissingStateChangedSources { get; init; } = [];
@@ -130,7 +130,7 @@ public sealed class BackgroundManagementService : IBackgroundManagementService
             return new BackgroundManagementResult
             {
                 SelectedProfileChanged = selectedProfileChanged,
-                HasPendingElevatedHostsUpdate = false,
+                PendingElevatedHostsUpdate = false,
                 SourceWithExternalChanges = externalChangesSource,
                 MissingStateChangedSources = missingStateChangedSources
             };
@@ -168,7 +168,7 @@ public sealed class BackgroundManagementService : IBackgroundManagementService
             return new BackgroundManagementResult
             {
                 SelectedProfileChanged = selectedProfileChanged,
-                HasPendingElevatedHostsUpdate = false,
+                PendingElevatedHostsUpdate = false,
                 StatusMessage = statusMessage,
                 SourceWithExternalChanges = externalChangesSource,
                 MissingStateChangedSources = missingStateChangedSources
@@ -182,7 +182,7 @@ public sealed class BackgroundManagementService : IBackgroundManagementService
             return new BackgroundManagementResult
             {
                 SelectedProfileChanged = selectedProfileChanged,
-                HasPendingElevatedHostsUpdate = stillNeedsApply,
+                PendingElevatedHostsUpdate = stillNeedsApply,
                 StatusMessage = stillNeedsApply
                     ? systemHostsWorkflowService.GetPermissionDeniedMessage(forBackgroundApply: true)
                     : null,
