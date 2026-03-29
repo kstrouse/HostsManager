@@ -99,6 +99,7 @@ public partial class MainWindowViewModel : ViewModelBase
         RemoteTransport.AzurePrivateDns
     ];
     public SourceListViewModel SourceList { get; }
+    public SelectedSourceDetailsViewModel SelectedSourceDetails { get; }
     public LocalSourceEditorViewModel LocalEditor { get; }
     public RemoteSourceEditorViewModel RemoteEditor { get; }
 
@@ -110,7 +111,6 @@ public partial class MainWindowViewModel : ViewModelBase
         SelectedProfile.SourceType == SourceType.Remote &&
         SelectedProfile.RemoteTransport == RemoteTransport.AzurePrivateDns &&
         !string.IsNullOrWhiteSpace(SelectedProfile.AzureSubscriptionId);
-    public bool IsSelectedSourceReadOnly => SelectedProfile?.IsReadOnly == true;
     public bool IsSelectedRemoteSyncIdle => !IsSelectedRemoteSyncRunning;
     public bool IsSelectedEntriesReadOnly => SelectedProfile switch
     {
@@ -121,15 +121,6 @@ public partial class MainWindowViewModel : ViewModelBase
         { IsReadOnly: true } => true,
         _ => false
     };
-    public string SelectedSourceTypeDisplay => SelectedProfile switch
-    {
-        null => string.Empty,
-        { SourceType: SourceType.Remote } profile => $"Remote ({GetRemoteTransportDisplay(profile.RemoteTransport)})",
-        { SourceType: SourceType.Local } => "Local",
-        { SourceType: SourceType.System } => "System",
-        _ => SelectedProfile.SourceType.ToString()
-    };
-    public bool IsSystemSelected => SelectedProfile?.SourceType == SourceType.System;
     public bool IsRemoteSelected => SelectedProfile?.SourceType == SourceType.Remote;
     public bool IsQuickSyncRunning => !string.IsNullOrWhiteSpace(quickSyncProfileId);
     public bool IsHttpRemoteSelected =>
@@ -254,6 +245,7 @@ public partial class MainWindowViewModel : ViewModelBase
             BuildBackgroundManagementRequest,
             ApplyBackgroundManagementResult);
         SourceList = new SourceListViewModel(this);
+        SelectedSourceDetails = new SelectedSourceDetailsViewModel(this);
         LocalEditor = new LocalSourceEditorViewModel(this);
         RemoteEditor = new RemoteSourceEditorViewModel(this);
 

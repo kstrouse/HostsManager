@@ -49,7 +49,7 @@ public partial class MainWindowViewModel
 
     partial void OnIsSystemHostsEditingEnabledChanged(bool value)
     {
-        if (!IsSystemSelected)
+        if (SelectedProfile?.SourceType != SourceType.System)
             return;
 
         StatusMessage = value
@@ -84,10 +84,7 @@ public partial class MainWindowViewModel
 
     private void NotifySelectedProfileStateChanged()
     {
-        OnPropertyChanged(nameof(IsSelectedSourceReadOnly));
         OnPropertyChanged(nameof(IsSelectedEntriesReadOnly));
-        OnPropertyChanged(nameof(SelectedSourceTypeDisplay));
-        OnPropertyChanged(nameof(IsSystemSelected));
         OnPropertyChanged(nameof(IsRemoteSelected));
         OnPropertyChanged(nameof(IsHttpRemoteSelected));
         OnPropertyChanged(nameof(IsAzurePrivateDnsRemoteSelected));

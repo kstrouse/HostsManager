@@ -1,0 +1,53 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:HostsManager.Desktop.ViewModels"
+             x:Class="HostsManager.Desktop.Views.SelectedSourceDetailsView"
+             x:DataType="vm:SelectedSourceDetailsViewModel">
+    <Grid RowDefinitions="Auto,Auto" RowSpacing="8">
+        <Border Grid.Row="0"
+                IsVisible="{Binding HasPendingElevatedHostsUpdate}"
+                Background="#3A2414"
+                BorderBrush="#7A4A1F"
+                BorderThickness="1"
+                CornerRadius="6"
+                Padding="10,8">
+            <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
+                <TextBlock Grid.Column="0"
+                           Text="Pending hosts changes need administrator approval."
+                           TextWrapping="Wrap"
+                           VerticalAlignment="Center"
+                           Foreground="#FFD8A8" />
+                <Button Grid.Column="1"
+                        Content="Apply Now"
+                        Command="{Binding ApplyToSystemHostsCommand}" />
+            </Grid>
+        </Border>
+
+        <StackPanel Grid.Row="1" Spacing="8">
+            <StackPanel Spacing="4">
+                <TextBlock Classes="label" Text="Name" />
+                <TextBox IsReadOnly="{Binding IsSelectedSourceReadOnly}"
+                         Text="{Binding SelectedProfile.Name, Mode=TwoWay}"
+                         Watermark="Source name" />
+            </StackPanel>
+
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <TextBlock Classes="label" Text="Type" VerticalAlignment="Center" />
+                <TextBlock Opacity="0.7" VerticalAlignment="Center" Text="{Binding SelectedSourceTypeDisplay}" />
+            </StackPanel>
+
+            <TextBlock IsVisible="{Binding IsSystemSelected}"
+                       Opacity="0.72"
+                       Text="{Binding HostsPath, StringFormat=System hosts file: {0}}" />
+
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" IsVisible="{Binding IsSystemSelected}">
+                <CheckBox IsChecked="{Binding IsSystemHostsEditingEnabled, Mode=TwoWay}" VerticalAlignment="Center" />
+                <TextBlock VerticalAlignment="Center" Text="Enable direct system hosts editing" />
+            </StackPanel>
+
+            <TextBlock IsVisible="{Binding IsSystemSelected}"
+                       Opacity="0.68"
+                       Text="Disabled by default for safety. Enable only when you need to edit non-managed records." />
+        </StackPanel>
+    </Grid>
+</UserControl>

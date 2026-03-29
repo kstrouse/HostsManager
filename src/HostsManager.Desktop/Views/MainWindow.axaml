@@ -57,25 +57,9 @@
                           ShowsPreview="True" />
 
             <Border Classes="panel" Grid.Column="2" Padding="12">
-                <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,Auto,*" RowSpacing="8">
-                    <Border Grid.Row="0"
-                            IsVisible="{Binding HasPendingElevatedHostsUpdate}"
-                            Background="#3A2414"
-                            BorderBrush="#7A4A1F"
-                            BorderThickness="1"
-                            CornerRadius="6"
-                            Padding="10,8">
-                        <Grid ColumnDefinitions="*,Auto" ColumnSpacing="12">
-                            <TextBlock Grid.Column="0"
-                                       Text="Pending hosts changes need administrator approval."
-                                       TextWrapping="Wrap"
-                                       VerticalAlignment="Center"
-                                       Foreground="#FFD8A8" />
-                            <Button Grid.Column="1"
-                                    Content="Apply Now"
-                                    Command="{Binding ApplyToSystemHostsCommand}" />
-                        </Grid>
-                    </Border>
+                <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*" RowSpacing="8">
+                    <views:SelectedSourceDetailsView Grid.Row="0"
+                                                     DataContext="{Binding SelectedSourceDetails}" />
 
                     <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
                         <TextBlock Text="Source Editor" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
@@ -89,39 +73,15 @@
                                    VerticalAlignment="Center" />
                     </Grid>
 
-                    <StackPanel Grid.Row="2" Spacing="8">
-                        <StackPanel Spacing="4">
-                            <TextBlock Classes="label" Text="Name" />
-                            <TextBox IsReadOnly="{Binding IsSelectedSourceReadOnly}" Text="{Binding SelectedProfile.Name, Mode=TwoWay}" Watermark="Source name" />
-                        </StackPanel>
-
-                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                            <TextBlock Classes="label" Text="Type" VerticalAlignment="Center" />
-                            <TextBlock Opacity="0.7" VerticalAlignment="Center" Text="{Binding SelectedSourceTypeDisplay}" />
-                        </StackPanel>
-
-                        <TextBlock IsVisible="{Binding IsSystemSelected}"
-                                   Opacity="0.72"
-                                   Text="{Binding HostsPath, StringFormat=System hosts file: {0}}" />
-
-                        <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" IsVisible="{Binding IsSystemSelected}">
-                            <CheckBox IsChecked="{Binding IsSystemHostsEditingEnabled, Mode=TwoWay}" VerticalAlignment="Center" />
-                            <TextBlock VerticalAlignment="Center" Text="Enable direct system hosts editing" />
-                        </StackPanel>
-                        <TextBlock IsVisible="{Binding IsSystemSelected}"
-                                   Opacity="0.68"
-                                   Text="Disabled by default for safety. Enable only when you need to edit non-managed records." />
-                    </StackPanel>
-
-                    <views:LocalSourceEditorView Grid.Row="3"
+                    <views:LocalSourceEditorView Grid.Row="2"
                                                  DataContext="{Binding LocalEditor}" />
 
-                    <views:RemoteSourceEditorView Grid.Row="4"
+                    <views:RemoteSourceEditorView Grid.Row="3"
                                                   DataContext="{Binding RemoteEditor}" />
 
-                    <TextBlock Grid.Row="5" Classes="label" Text="Hosts Entries" />
+                    <TextBlock Grid.Row="4" Classes="label" Text="Hosts Entries" />
 
-                    <Border Grid.Row="6" BorderBrush="#2F3742" BorderThickness="1" CornerRadius="6" Background="#141A22" Padding="2">
+                    <Border Grid.Row="5" BorderBrush="#2F3742" BorderThickness="1" CornerRadius="6" Background="#141A22" Padding="2">
                         <ae:TextEditor Name="HostsEntriesEditor"
                                        IsReadOnly="{Binding IsSelectedEntriesReadOnly}"
                                        ShowLineNumbers="True"
