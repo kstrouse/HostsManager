@@ -77,6 +77,13 @@ public interface ISystemHostsWorkflowService
         CancellationToken cancellationToken = default);
 }
 
+public interface ILocalSourceWatcherService : IDisposable
+{
+    void SyncWatchedSources(IEnumerable<HostProfile> sources);
+    void MarkDirty();
+    bool ConsumeDirty();
+}
+
 public interface IStartupRegistrationService
 {
     bool IsSupported { get; }

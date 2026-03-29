@@ -37,7 +37,7 @@ public partial class MainWindowViewModel
         try
         {
             await localSourceService.RenameAsync(SelectedProfile, requestedName);
-            localSourcesDirty = true;
+            localSourceWatcherService.MarkDirty();
             OnPropertyChanged(nameof(SelectedProfile));
             OnPropertyChanged(nameof(SelectedLocalFilePath));
             OnPropertyChanged(nameof(SelectedLocalFolderPath));
@@ -95,7 +95,7 @@ public partial class MainWindowViewModel
         try
         {
             await localSourceService.RecreateMissingFileAsync(profile);
-            localSourcesDirty = true;
+            localSourceWatcherService.MarkDirty();
 
             OnPropertyChanged(nameof(SelectedProfile));
             OnPropertyChanged(nameof(IsSelectedEntriesReadOnly));
@@ -131,7 +131,7 @@ public partial class MainWindowViewModel
             var source = await localSourceService.CreateNewSourceAsync(path);
             Profiles.Add(source);
             SelectedProfile = source;
-            localSourcesDirty = true;
+            localSourceWatcherService.MarkDirty();
             StatusMessage = "Local source created and added.";
         }
         catch (Exception ex)
@@ -152,7 +152,7 @@ public partial class MainWindowViewModel
             var source = await localSourceService.LoadExistingSourceAsync(path);
             Profiles.Add(source);
             SelectedProfile = source;
-            localSourcesDirty = true;
+            localSourceWatcherService.MarkDirty();
             StatusMessage = "Existing local source added.";
         }
         catch (Exception ex)

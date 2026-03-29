@@ -226,6 +226,7 @@ public sealed class MainWindowViewModelTests
             profileStore ?? new ProfileStore(Path.Combine(tempRoot, "config")),
             hostsService,
             new LocalSourceService(),
+            new LocalSourceWatcherService(),
             new FakeStartupRegistrationService(),
             new FakeWindowsElevationService(),
             httpClient ?? new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)

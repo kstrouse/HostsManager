@@ -22,18 +22,17 @@ public partial class MainWindowViewModel : ViewModelBase
 {
     private readonly IProfileStore profileStore;
     private readonly ILocalSourceService localSourceService;
+    private readonly ILocalSourceWatcherService localSourceWatcherService;
     private readonly IHostsStateTracker hostsStateTracker;
     private readonly IRemoteSourceSyncService remoteSourceSyncService;
     private readonly IStartupRegistrationService startupRegistrationService;
     private readonly ISystemHostsWorkflowService systemHostsWorkflowService;
     private readonly IUiTimer refreshTimer;
     private readonly IUiTimer manageTimer;
-    private readonly Dictionary<string, FileSystemWatcher> localSourceWatchers;
     private bool isRefreshRunning;
     private bool isManageRunning;
     private bool isReconcileScheduled;
     private bool reconcileRequested;
-    private bool localSourcesDirty;
     private bool systemHostsRefreshPulseRequested;
     private bool isInitializing;
     private bool isInitialized;
@@ -148,6 +147,7 @@ public partial class MainWindowViewModel : ViewModelBase
             new ProfileStore(),
             new HostsFileService(),
             new LocalSourceService(),
+            new LocalSourceWatcherService(),
             new StartupRegistrationService(),
             new WindowsElevationService(),
             CreateDefaultHttpClient(),
@@ -164,6 +164,7 @@ public partial class MainWindowViewModel : ViewModelBase
         IProfileStore profileStore,
         IHostsFileService hostsFileService,
         ILocalSourceService localSourceService,
+        ILocalSourceWatcherService localSourceWatcherService,
         IStartupRegistrationService startupRegistrationService,
         IWindowsElevationService windowsElevationService,
         HttpClient httpClient,
@@ -176,6 +177,7 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         this.profileStore = profileStore;
         this.localSourceService = localSourceService;
+        this.localSourceWatcherService = localSourceWatcherService;
         this.hostsStateTracker = hostsStateTracker ?? new HostsStateTracker();
         this.startupRegistrationService = startupRegistrationService;
         this.systemHostsWorkflowService = systemHostsWorkflowService ?? new SystemHostsWorkflowService(
@@ -187,8 +189,6 @@ public partial class MainWindowViewModel : ViewModelBase
         this.remoteSourceSyncService = remoteSourceSyncService ?? new RemoteSourceSyncService(httpClient, resolvedAzurePrivateDnsService);
         this.refreshTimer = refreshTimer ?? CreateTimer(TimeSpan.FromMinutes(1));
         this.manageTimer = manageTimer ?? CreateTimer(TimeSpan.FromSeconds(2));
-        localSourceWatchers = new Dictionary<string, FileSystemWatcher>(StringComparer.OrdinalIgnoreCase);
-        localSourcesDirty = true;
 
         this.refreshTimer.Tick += async (_, _) => await RefreshRemoteProfilesAsync(forceAll: false, userInitiated: false);
         this.manageTimer.Tick += async (_, _) => await RunBackgroundManagementTickAsync();
@@ -235,7 +235,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
             refreshTimer.Start();
             manageTimer.Start();
-            localSourcesDirty = true;
+            localSourceWatcherService.MarkDirty();
             await RunBackgroundManagementTickAsync();
             var hadPendingStartupAction = Program.PendingStartupAction != StartupAction.None;
             await ExecutePendingStartupActionAsync();
@@ -293,7 +293,7 @@ public partial class MainWindowViewModel : ViewModelBase
             {
                 await File.WriteAllTextAsync(SelectedProfile.LocalPath, SelectedProfile.Entries ?? string.Empty);
                 SelectedProfile.LastLoadedFromDiskEntries = SelectedProfile.Entries ?? string.Empty;
-                localSourcesDirty = true;
+                localSourceWatcherService.MarkDirty();
                 await SaveProfilesAsync();
                 StatusMessage = $"Saved source: {SelectedProfile.Name}";
             }
@@ -347,7 +347,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
         Profiles.Add(profile);
         SelectedProfile = profile;
-        localSourcesDirty = true;
+        localSourceWatcherService.MarkDirty();
         StatusMessage = $"New remote source created ({GetRemoteTransportDisplay(remoteTransport)}).";
     }
 
@@ -379,7 +379,7 @@ public partial class MainWindowViewModel : ViewModelBase
             ? null
             : Profiles[Math.Clamp(index, 0, Profiles.Count - 1)];
 
-        localSourcesDirty = true;
+        localSourceWatcherService.MarkDirty();
         StatusMessage = "Source removed.";
     }
 
@@ -458,7 +458,7 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             SelectedProfile.Entries = await File.ReadAllTextAsync(SelectedProfile.LocalPath);
             OnPropertyChanged(nameof(SelectedProfile));
-            localSourcesDirty = true;
+            localSourceWatcherService.MarkDirty();
             StatusMessage = "Reloaded entries from local file.";
         }
         catch (Exception ex)
@@ -491,7 +491,7 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             await File.WriteAllTextAsync(SelectedProfile.LocalPath, SelectedProfile.Entries ?? string.Empty);
             SelectedProfile.LastLoadedFromDiskEntries = SelectedProfile.Entries ?? string.Empty;
-            localSourcesDirty = true;
+            localSourceWatcherService.MarkDirty();
             await RunBackgroundManagementTickAsync();
             StatusMessage = "Saved entries to local source file.";
         }
@@ -639,7 +639,7 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             await systemHostsWorkflowService.SaveRawHostsAsync(profile.Entries ?? string.Empty, allowPrivilegePrompt: true);
             await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: false);
-            localSourcesDirty = true;
+            localSourceWatcherService.MarkDirty();
             IsSystemHostsEditingEnabled = false;
             DismissSelectedSourceExternalChangeNotification();
             HasPendingElevatedHostsUpdate = false;
@@ -925,7 +925,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 reconcileRequested = false;
                 systemHostsRefreshPulseRequested = false;
 
-                EnsureLocalSourceWatchers();
+                localSourceWatcherService.SyncWatchedSources(Profiles);
 
                 await PersistSourcesIfChangedAsync();
 
@@ -1013,12 +1013,10 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         var changed = await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: true, skipSelectedProfile: true);
 
-        if (!localSourcesDirty)
+        if (!localSourceWatcherService.ConsumeDirty())
         {
             return changed;
         }
-
-        localSourcesDirty = false;
 
         foreach (var source in Profiles)
         {
@@ -1053,70 +1051,6 @@ public partial class MainWindowViewModel : ViewModelBase
         }
 
         return changed;
-    }
-
-    private void EnsureLocalSourceWatchers()
-    {
-        var wantedPaths = Profiles
-            .Where(source => source.SourceType is SourceType.Local or SourceType.System)
-            .Where(source => !string.IsNullOrWhiteSpace(source.LocalPath))
-            .Select(source => NormalizePath(source.LocalPath))
-            .Where(path => !string.IsNullOrWhiteSpace(path))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        var toRemove = localSourceWatchers.Keys.Where(path => !wantedPaths.Contains(path)).ToList();
-        foreach (var path in toRemove)
-        {
-            localSourceWatchers[path].Dispose();
-            localSourceWatchers.Remove(path);
-        }
-
-        foreach (var path in wantedPaths)
-        {
-            if (localSourceWatchers.ContainsKey(path))
-            {
-                continue;
-            }
-
-            var directory = Path.GetDirectoryName(path);
-            var fileName = Path.GetFileName(path);
-
-            if (string.IsNullOrWhiteSpace(directory) || string.IsNullOrWhiteSpace(fileName) || !Directory.Exists(directory))
-            {
-                continue;
-            }
-
-            var watcher = new FileSystemWatcher(directory, fileName)
-            {
-                NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.CreationTime,
-                EnableRaisingEvents = true
-            };
-
-            watcher.Changed += OnLocalSourceFileChanged;
-            watcher.Created += OnLocalSourceFileChanged;
-            watcher.Renamed += OnLocalSourceFileChanged;
-            watcher.Deleted += OnLocalSourceFileChanged;
-
-            localSourceWatchers[path] = watcher;
-        }
-    }
-
-    private void OnLocalSourceFileChanged(object sender, FileSystemEventArgs e)
-    {
-        localSourcesDirty = true;
-    }
-
-    private static string NormalizePath(string path)
-    {
-        try
-        {
-            return Path.GetFullPath(path);
-        }
-        catch
-        {
-            return path;
-        }
     }
 
     partial void OnMinimizeToTrayOnCloseChanged(bool value)
@@ -1514,7 +1448,7 @@ public partial class MainWindowViewModel : ViewModelBase
                     if (result.Performed)
                     {
                         await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: false);
-                        localSourcesDirty = true;
+                        localSourceWatcherService.MarkDirty();
                         IsSystemHostsEditingEnabled = false;
                         DismissSelectedSourceExternalChangeNotification();
                         HasPendingElevatedHostsUpdate = false;
