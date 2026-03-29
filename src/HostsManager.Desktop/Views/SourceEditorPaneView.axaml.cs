@@ -140,7 +140,6 @@ public partial class SourceEditorPaneView : UserControl
         }
 
         await vm.SaveSelectedSourceCommand.ExecuteAsync(null);
-        await vm.RequestImmediateReconcileAsync();
         editorState.UpdateUnsavedIndicatorVisibility(vm);
         editorState.UpdateSaveButtonAvailability(vm);
     }

@@ -13,7 +13,7 @@ public sealed class SourceEditorPaneViewModelTests
         Assert.Same(vm.SelectedSourceDetails, vm.SourceEditor.SelectedSourceDetails);
         Assert.Same(vm.LocalEditor, vm.SourceEditor.LocalEditor);
         Assert.Same(vm.RemoteEditor, vm.SourceEditor.RemoteEditor);
-        Assert.Same(vm.SaveSelectedSourceCommand, vm.SourceEditor.SaveSelectedSourceCommand);
+        Assert.NotNull(vm.SourceEditor.SaveSelectedSourceCommand);
     }
 
     [Fact]
@@ -30,6 +30,108 @@ public sealed class SourceEditorPaneViewModelTests
 
         Assert.Same(vm.SelectedProfile, vm.SourceEditor.SelectedProfile);
         Assert.Contains(nameof(SourceEditorPaneViewModel.SelectedProfile), notifications);
+    }
+
+    [Fact]
+    public void SaveSelectedSourceCommand_CanExecuteFollowsSelectionState()
+    {
+        using var tempDir = new TempDirectory();
+        var hostsPath = Path.Combine(tempDir.Path, "system-hosts");
+        File.WriteAllText(hostsPath, "127.0.0.1 localhost\n");
+        var vm = CreateViewModel(tempDir.Path, hostsPath);
+
+        Assert.False(vm.SourceEditor.SaveSelectedSourceCommand.CanExecute(null));
+
+        vm.SelectedProfile = new HostProfile
+        {
+            Name = "Local",
+            SourceType = SourceType.Local,
+            LocalPath = Path.Combine(tempDir.Path, "local.hosts")
+        };
+
+        Assert.True(vm.SourceEditor.SaveSelectedSourceCommand.CanExecute(null));
+
+        vm.SelectedProfile.IsMissingLocalFile = true;
+
+        Assert.False(vm.SourceEditor.SaveSelectedSourceCommand.CanExecute(null));
+
+        vm.SelectedProfile = new HostProfile
+        {
+            Name = "System Hosts",
+            SourceType = SourceType.System,
+            LocalPath = hostsPath,
+            IsReadOnly = true
+        };
+
+        Assert.False(vm.SourceEditor.SaveSelectedSourceCommand.CanExecute(null));
+
+        vm.IsSystemHostsEditingEnabled = true;
+
+        Assert.True(vm.SourceEditor.SaveSelectedSourceCommand.CanExecute(null));
+
+        vm.SelectedProfile = new HostProfile
+        {
+            Name = "Remote",
+            SourceType = SourceType.Remote,
+            IsReadOnly = true
+        };
+
+        Assert.False(vm.SourceEditor.SaveSelectedSourceCommand.CanExecute(null));
+    }
+
+    [Fact]
+    public async Task SaveSelectedSourceCommand_LocalSelectionWritesFileAndPersistsConfig()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        using var tempDir = new TempDirectory();
+        var hostsPath = Path.Combine(tempDir.Path, "system-hosts");
+        await File.WriteAllTextAsync(hostsPath, "127.0.0.1 localhost\n", cancellationToken);
+        var localPath = Path.Combine(tempDir.Path, "save.hosts");
+        await File.WriteAllTextAsync(localPath, "127.0.0.1 before.local\n", cancellationToken);
+        var store = new ProfileStore(Path.Combine(tempDir.Path, "config"));
+        var vm = CreateViewModel(tempDir.Path, hostsPath, profileStore: store);
+        await vm.SourceList.AddExistingLocalSourceAsync(localPath);
+        vm.SelectedProfile!.Entries = "127.0.0.1 after.local\n";
+
+        await vm.SourceEditor.SaveSelectedSourceCommand.ExecuteAsync(null);
+
+        Assert.Equal("127.0.0.1 after.local\n", (await File.ReadAllTextAsync(localPath, cancellationToken)).Replace("\r\n", "\n"));
+        Assert.Equal("127.0.0.1 after.local\n", vm.SelectedProfile.LastLoadedFromDiskEntries?.Replace("\r\n", "\n"));
+        Assert.Equal("Saved source: save", vm.StatusMessage);
+
+        var config = await store.LoadAsync(cancellationToken);
+        var savedProfile = Assert.Single(config.Profiles);
+        Assert.Equal(localPath, savedProfile.LocalPath);
+        Assert.Equal("127.0.0.1 after.local\n", savedProfile.Entries.Replace("\r\n", "\n"));
+    }
+
+    [Fact]
+    public async Task SaveSelectedSourceCommand_SystemSelectionSavesHostsFile()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        using var tempDir = new TempDirectory();
+        var hostsPath = Path.Combine(tempDir.Path, "system-hosts");
+        await File.WriteAllTextAsync(hostsPath, "127.0.0.1 localhost\n", cancellationToken);
+        var vm = CreateViewModel(tempDir.Path, hostsPath);
+        var systemSource = new HostProfile
+        {
+            Id = "system-hosts-source",
+            Name = "System Hosts",
+            SourceType = SourceType.System,
+            LocalPath = hostsPath,
+            Entries = "127.0.0.1 edited.local\n",
+            IsReadOnly = true,
+            LastLoadedFromDiskEntries = "127.0.0.1 localhost\n"
+        };
+        vm.Profiles.Add(systemSource);
+        vm.SelectedProfile = systemSource;
+        vm.IsSystemHostsEditingEnabled = true;
+
+        await vm.SourceEditor.SaveSelectedSourceCommand.ExecuteAsync(null);
+
+        Assert.Equal("127.0.0.1 edited.local\n", (await File.ReadAllTextAsync(hostsPath, cancellationToken)).Replace("\r\n", "\n"));
+        Assert.Equal("System hosts file saved.", vm.StatusMessage);
+        Assert.False(vm.IsSystemHostsEditingEnabled);
     }
 
     [Fact]
@@ -52,7 +154,7 @@ public sealed class SourceEditorPaneViewModelTests
     }
 
     [Fact]
-    public async Task ReloadAndDismiss_DelegateToOwner()
+    public async Task ReloadAndDismiss_OperateWithinChildViewModel()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
         using var tempDir = new TempDirectory();
@@ -70,7 +172,9 @@ public sealed class SourceEditorPaneViewModelTests
         vm.SourceEditor.DismissSelectedSourceExternalChangeNotification();
 
         Assert.True(changed);
+        Assert.Equal("127.0.0.1 after.local\n", vm.SelectedProfile?.Entries.Replace("\r\n", "\n"));
         Assert.False(vm.SourceEditor.SelectedSourceChangedExternally);
+        Assert.Equal($"Reloaded external changes for {vm.SelectedProfile?.Name}.", vm.StatusMessage);
     }
 
     private static MainWindowViewModel CreateViewModel(

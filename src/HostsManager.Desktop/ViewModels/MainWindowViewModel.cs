@@ -47,7 +47,6 @@ public partial class MainWindowViewModel : ViewModelBase
     [ObservableProperty]
     [NotifyCanExecuteChangedFor(nameof(ReloadLocalSourceCommand))]
     [NotifyCanExecuteChangedFor(nameof(SaveEntriesToLocalCommand))]
-    [NotifyCanExecuteChangedFor(nameof(SaveSelectedSourceCommand))]
     private HostProfile? selectedProfile;
 
     [ObservableProperty]
@@ -73,7 +72,6 @@ public partial class MainWindowViewModel : ViewModelBase
 
     [ObservableProperty]
     [NotifyPropertyChangedFor(nameof(IsSelectedEntriesReadOnly))]
-    [NotifyCanExecuteChangedFor(nameof(SaveSelectedSourceCommand))]
     private bool isSystemHostsEditingEnabled;
 
     [ObservableProperty]
@@ -261,7 +259,14 @@ public partial class MainWindowViewModel : ViewModelBase
             () => OnPropertyChanged(nameof(IsSelectedEntriesReadOnly)),
             static startInfo => Process.Start(startInfo));
         RemoteEditor = new RemoteSourceEditorViewModel(this);
-        SourceEditor = new SourceEditorPaneViewModel(this);
+        SourceEditor = new SourceEditorPaneViewModel(
+            this,
+            localSourceService,
+            this.systemHostsWorkflowService,
+            localSourceWatcherService,
+            () => SaveProfilesAsync(),
+            profile => SaveSystemHostsDirectAsync(profile),
+            () => OnPropertyChanged(nameof(SelectedProfile)));
         StatusBar = new StatusActionBarViewModel(this, startupRegistrationService.IsSupported);
 
         this.refreshTimer.Tick += async (_, _) => await RefreshRemoteProfilesAsync(forceAll: false, userInitiated: false);

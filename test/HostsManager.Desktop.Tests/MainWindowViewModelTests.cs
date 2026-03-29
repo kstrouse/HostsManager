@@ -98,7 +98,7 @@ public sealed class MainWindowViewModelTests
     }
 
     [Fact]
-    public async Task ReloadSelectedSourceFromDiskAsync_UpdatesEntriesAndClearsExternalChangeNotification()
+    public async Task SourceEditor_ReloadSelectedSourceFromDiskAsync_UpdatesEntriesAndClearsExternalChangeNotification()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
         using var tempDir = new TempDirectory();
@@ -113,7 +113,7 @@ public sealed class MainWindowViewModelTests
         vm.SelectedSourceExternalChangeName = "reload";
         await File.WriteAllTextAsync(localPath, "127.0.0.1 after.local\n", cancellationToken);
 
-        var changed = await vm.ReloadSelectedSourceFromDiskAsync();
+        var changed = await vm.SourceEditor.ReloadSelectedSourceFromDiskAsync();
 
         Assert.True(changed);
         Assert.Equal("127.0.0.1 after.local\n", vm.SelectedProfile?.Entries.Replace("\r\n", "\n"));

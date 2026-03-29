@@ -83,28 +83,7 @@ public partial class MainWindowViewModel
         }
     }
 
-    public async Task<bool> ReloadSelectedSourceFromDiskAsync()
-    {
-        if (SelectedProfile is null)
-            return false;
-
-        var isFileBacked = SelectedProfile.SourceType is SourceType.Local or SourceType.System;
-        if (!isFileBacked)
-            return false;
-
-        var changed = await localSourceService.ReloadFromDiskAsync(SelectedProfile);
-        DismissSelectedSourceExternalChangeNotification();
-
-        if (changed)
-        {
-            OnPropertyChanged(nameof(SelectedProfile));
-            StatusMessage = $"Reloaded external changes for {SelectedProfile.Name}.";
-        }
-
-        return changed;
-    }
-
-    public void DismissSelectedSourceExternalChangeNotification()
+    private void DismissSelectedSourceExternalChangeNotification()
     {
         SelectedSourceChangedExternally = false;
         SelectedSourceExternalChangeName = string.Empty;
@@ -119,7 +98,6 @@ public partial class MainWindowViewModel
         {
             ReloadLocalSourceCommand.NotifyCanExecuteChanged();
             SaveEntriesToLocalCommand.NotifyCanExecuteChanged();
-            SaveSelectedSourceCommand.NotifyCanExecuteChanged();
             OnPropertyChanged(nameof(IsSelectedEntriesReadOnly));
         }
     }
