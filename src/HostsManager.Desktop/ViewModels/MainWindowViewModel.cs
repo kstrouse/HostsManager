@@ -99,6 +99,7 @@ public partial class MainWindowViewModel : ViewModelBase
         RemoteTransport.Sftp,
         RemoteTransport.AzurePrivateDns
     ];
+    public RemoteSourceEditorViewModel RemoteEditor { get; }
 
     public string HostsPath { get; }
     public bool CanLoadAzureSubscriptions => !IsAzureSubscriptionsLoading;
@@ -262,6 +263,7 @@ public partial class MainWindowViewModel : ViewModelBase
             }),
             BuildBackgroundManagementRequest,
             ApplyBackgroundManagementResult);
+        RemoteEditor = new RemoteSourceEditorViewModel(this);
 
         this.refreshTimer.Tick += async (_, _) => await RefreshRemoteProfilesAsync(forceAll: false, userInitiated: false);
 

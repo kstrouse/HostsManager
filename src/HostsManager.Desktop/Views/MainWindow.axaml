@@ -1,6 +1,7 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="using:HostsManager.Desktop.ViewModels"
+    xmlns:views="using:HostsManager.Desktop.Views"
     xmlns:ae="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
@@ -194,132 +195,8 @@
                         </StackPanel>
                     </Border>
 
-                    <Border Grid.Row="4" Classes="panel" Padding="10" IsVisible="{Binding IsRemoteSelected}">
-                        <StackPanel Spacing="8">
-                            <TextBlock Classes="label" Text="Remote Source" />
-
-                            <StackPanel Spacing="6" IsVisible="{Binding IsHttpRemoteSelected}">
-                                <TextBlock Opacity="0.72" Text="HTTP/HTTPS URL" />
-                                <TextBox Text="{Binding SelectedProfile.RemoteLocation, Mode=TwoWay}" Watermark="https://example.com/hosts" />
-                            </StackPanel>
-
-                            <Grid IsVisible="{Binding IsAzurePrivateDnsRemoteSelected}" ColumnDefinitions="2*,3*" ColumnSpacing="10">
-                                <StackPanel Grid.Column="0" Spacing="8">
-                                    <TextBlock Opacity="0.72" Text="Azure Private DNS settings" />
-                                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                        <Button Classes="action"
-                                                Content="Connect Azure"
-                                                IsEnabled="{Binding CanLoadAzureSubscriptions}"
-                                                Command="{Binding LoadAzureSubscriptionsCommand}" />
-                                    </StackPanel>
-
-                                    <StackPanel Orientation="Horizontal"
-                                                Spacing="8"
-                                                VerticalAlignment="Center"
-                                                IsVisible="{Binding IsAzureSubscriptionsLoading}">
-                                        <ProgressBar IsIndeterminate="True" Width="120" Height="6" />
-                                        <TextBlock VerticalAlignment="Center" Opacity="0.72" Text="Loading subscriptions..." />
-                                    </StackPanel>
-
-                                    <TextBlock Classes="label" Text="Subscription" />
-                                    <ComboBox ItemsSource="{Binding AzureSubscriptions}"
-                                              IsEnabled="{Binding CanLoadAzureSubscriptions}"
-                                              SelectedItem="{Binding SelectedAzureSubscription, Mode=TwoWay}">
-                                        <ComboBox.ItemTemplate>
-                                            <DataTemplate>
-                                                <TextBlock Text="{Binding DisplayLabel}" />
-                                            </DataTemplate>
-                                        </ComboBox.ItemTemplate>
-                                    </ComboBox>
-
-                                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                        <TextBlock Classes="label" VerticalAlignment="Center" Text="Interval (min)" />
-                                        <TextBox Width="70" Text="{Binding SelectedProfile.RefreshIntervalMinutes, Mode=TwoWay}" />
-                                        <TextBlock Classes="label" VerticalAlignment="Center" Text="Auto Sync" />
-                                        <CheckBox IsChecked="{Binding SelectedProfile.AutoRefreshFromRemote, Mode=TwoWay}" VerticalAlignment="Center" />
-                                    </StackPanel>
-
-                                    <Button Classes="action" Command="{Binding ReadSelectedRemoteHostsCommand}">
-                                        <Grid ColumnDefinitions="Auto,Auto" ColumnSpacing="8">
-                                            <ProgressBar Grid.Column="0"
-                                                         Width="18"
-                                                         Height="6"
-                                                         IsIndeterminate="True"
-                                                         IsVisible="{Binding IsSelectedRemoteSyncRunning}" />
-                                            <TextBlock Grid.Column="1"
-                                                       VerticalAlignment="Center"
-                                                       Text="Syncing ..."
-                                                       IsVisible="{Binding IsSelectedRemoteSyncRunning}" />
-                                            <TextBlock Grid.ColumnSpan="2"
-                                                       VerticalAlignment="Center"
-                                                       Text="Sync Now"
-                                                       IsVisible="{Binding IsSelectedRemoteSyncIdle}" />
-                                        </Grid>
-                                    </Button>
-                                    <TextBlock Opacity="0.72" Text="{Binding SelectedProfile.LastSyncedAtLocalDisplay, StringFormat=Last sync: {0}}" />
-                                </StackPanel>
-
-                                <StackPanel Grid.Column="1" Spacing="8">
-                                    <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
-                                        <TextBlock Classes="label" VerticalAlignment="Center" Text="Zones" />
-                                        <Button Classes="action"
-                                                Content="Refresh Zones"
-                                                IsEnabled="{Binding CanRefreshAzureZones}"
-                                                Command="{Binding RefreshAzureZonesCommand}" />
-                                    </StackPanel>
-
-                                    <StackPanel Orientation="Horizontal"
-                                                Spacing="8"
-                                                VerticalAlignment="Center"
-                                                IsVisible="{Binding IsAzureZonesLoading}">
-                                        <ProgressBar IsIndeterminate="True" Width="120" Height="6" />
-                                        <TextBlock VerticalAlignment="Center" Opacity="0.72" Text="Loading zones..." />
-                                    </StackPanel>
-
-                                    <Border BorderBrush="#2F3742" BorderThickness="1" CornerRadius="6" Padding="8" Background="#141A22" MinHeight="110">
-                                        <ScrollViewer MinHeight="120" MaxHeight="220" VerticalScrollBarVisibility="Auto">
-                                            <ItemsControl ItemsSource="{Binding AzureZones}">
-                                                <ItemsControl.ItemTemplate>
-                                                    <DataTemplate>
-                                                        <CheckBox IsChecked="{Binding IsEnabled, Mode=TwoWay}"
-                                                                  Content="{Binding DisplayLabel}" />
-                                                    </DataTemplate>
-                                                </ItemsControl.ItemTemplate>
-                                            </ItemsControl>
-                                        </ScrollViewer>
-                                    </Border>
-                                    <TextBlock Opacity="0.72" Text="Newly discovered zones are automatically enabled during sync." />
-                                </StackPanel>
-                            </Grid>
-
-                            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center" IsVisible="{Binding IsHttpRemoteSelected}">
-                                <TextBlock Classes="label" VerticalAlignment="Center" Text="Interval (min)" />
-                                <TextBox Width="70" Text="{Binding SelectedProfile.RefreshIntervalMinutes, Mode=TwoWay}" />
-                                <TextBlock Classes="label" VerticalAlignment="Center" Text="Auto Sync" />
-                                <CheckBox IsChecked="{Binding SelectedProfile.AutoRefreshFromRemote, Mode=TwoWay}" VerticalAlignment="Center" />
-                                <Button Classes="action" Command="{Binding ReadSelectedRemoteHostsCommand}">
-                                    <Grid ColumnDefinitions="Auto,Auto" ColumnSpacing="8">
-                                        <ProgressBar Grid.Column="0"
-                                                     Width="18"
-                                                     Height="6"
-                                                     IsIndeterminate="True"
-                                                     IsVisible="{Binding IsSelectedRemoteSyncRunning}" />
-                                        <TextBlock Grid.Column="1"
-                                                   VerticalAlignment="Center"
-                                                   Text="Syncing ..."
-                                                   IsVisible="{Binding IsSelectedRemoteSyncRunning}" />
-                                        <TextBlock Grid.ColumnSpan="2"
-                                                   VerticalAlignment="Center"
-                                                   Text="Sync Now"
-                                                   IsVisible="{Binding IsSelectedRemoteSyncIdle}" />
-                                    </Grid>
-                                </Button>
-                            </StackPanel>
-                            <TextBlock Opacity="0.72"
-                                       IsVisible="{Binding IsHttpRemoteSelected}"
-                                       Text="{Binding SelectedProfile.LastSyncedAtLocalDisplay, StringFormat=Last sync: {0}}" />
-                        </StackPanel>
-                    </Border>
+                    <views:RemoteSourceEditorView Grid.Row="4"
+                                                  DataContext="{Binding RemoteEditor}" />
 
                     <TextBlock Grid.Row="5" Classes="label" Text="Hosts Entries" />
 
