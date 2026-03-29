@@ -10,8 +10,8 @@ public sealed class StatusActionBarViewModelTests
         File.WriteAllText(hostsPath, "127.0.0.1 localhost\n");
         var vm = CreateViewModel(tempDir.Path, hostsPath);
 
-        Assert.Same(vm.SyncAllFromUrlCommand, vm.StatusBar.SyncAllFromUrlCommand);
-        Assert.Same(vm.ApplyToSystemHostsCommand, vm.StatusBar.ApplyToSystemHostsCommand);
+        Assert.NotNull(vm.StatusBar.SyncAllFromUrlCommand);
+        Assert.NotNull(vm.StatusBar.ApplyToSystemHostsCommand);
         Assert.False(vm.StatusBar.CanConfigureRunAtStartup);
     }
 
@@ -57,6 +57,53 @@ public sealed class StatusActionBarViewModelTests
 
         Assert.True(vm.RunAtStartup);
         Assert.True(vm.StatusBar.RunAtStartup);
+    }
+
+    [Fact]
+    public void OwnerPreferenceChange_UpdatesChildState()
+    {
+        using var tempDir = new TempDirectory();
+        var hostsPath = Path.Combine(tempDir.Path, "system-hosts");
+        File.WriteAllText(hostsPath, "127.0.0.1 localhost\n");
+        var vm = CreateViewModel(tempDir.Path, hostsPath);
+        var notifications = new List<string>();
+        vm.StatusBar.PropertyChanged += (_, e) => notifications.Add(e.PropertyName ?? string.Empty);
+
+        vm.MinimizeToTrayOnClose = true;
+        vm.RunAtStartup = true;
+
+        Assert.True(vm.StatusBar.MinimizeToTrayOnClose);
+        Assert.True(vm.StatusBar.RunAtStartup);
+        Assert.Contains(nameof(StatusActionBarViewModel.MinimizeToTrayOnClose), notifications);
+        Assert.Contains(nameof(StatusActionBarViewModel.RunAtStartup), notifications);
+    }
+
+    [Fact]
+    public async Task SyncAllFromUrlCommand_RunsChildWorkflow()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        using var tempDir = new TempDirectory();
+        var hostsPath = Path.Combine(tempDir.Path, "system-hosts");
+        await File.WriteAllTextAsync(hostsPath, "127.0.0.1 localhost\n", cancellationToken);
+        var handler = new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
+        {
+            Content = new StringContent("10.0.0.5 synced.remote\n")
+        });
+        var vm = CreateViewModel(tempDir.Path, hostsPath, httpClient: new HttpClient(handler));
+        vm.Profiles.Add(new HostProfile
+        {
+            Id = "remote-1",
+            Name = "Remote",
+            SourceType = SourceType.Remote,
+            RemoteTransport = RemoteTransport.Https,
+            RemoteLocation = "https://example.test/hosts",
+            IsEnabled = true,
+            AutoRefreshFromRemote = true
+        });
+
+        await vm.StatusBar.SyncAllFromUrlCommand.ExecuteAsync(null);
+
+        Assert.Equal("Remote sync completed with 1 update(s).", vm.StatusMessage);
     }
 
     [Fact]

@@ -247,7 +247,13 @@ public partial class MainWindowViewModel : ViewModelBase
             () => SaveProfilesAsync(),
             profile => SaveSystemHostsDirectAsync(profile),
             () => OnPropertyChanged(nameof(SelectedProfile)));
-        StatusBar = new StatusActionBarViewModel(this, startupRegistrationService.IsSupported);
+        StatusBar = new StatusActionBarViewModel(
+            this,
+            startupRegistrationService.IsSupported,
+            () => SyncAllFromUrlAsync(),
+            () => ApplyToSystemHostsAsync(),
+            value => MinimizeToTrayOnClose = value,
+            value => RunAtStartup = value);
 
         this.refreshTimer.Tick += async (_, _) => await RefreshRemoteProfilesAsync(forceAll: false, userInitiated: false);
     }
