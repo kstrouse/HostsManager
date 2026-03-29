@@ -10,7 +10,7 @@ public sealed class SelectedSourceDetailsViewModelTests
         File.WriteAllText(hostsPath, "127.0.0.1 localhost\n");
         var vm = CreateViewModel(tempDir.Path, hostsPath);
 
-        Assert.Same(vm.ApplyToSystemHostsCommand, vm.SelectedSourceDetails.ApplyToSystemHostsCommand);
+        Assert.NotNull(vm.SelectedSourceDetails.ApplyToSystemHostsCommand);
         Assert.Equal(hostsPath, vm.SelectedSourceDetails.HostsPath);
     }
 
@@ -31,6 +31,7 @@ public sealed class SelectedSourceDetailsViewModelTests
             RemoteTransport = RemoteTransport.AzurePrivateDns
         };
 
+        Assert.Same(vm.SelectedProfile, vm.SelectedSourceDetails.SelectedProfile);
         Assert.Equal("Remote (Azure Private DNS)", vm.SelectedSourceDetails.SelectedSourceTypeDisplay);
         Assert.False(vm.SelectedSourceDetails.IsSystemSelected);
         Assert.Contains(nameof(SelectedSourceDetailsViewModel.SelectedProfile), notifications);
@@ -58,6 +59,22 @@ public sealed class SelectedSourceDetailsViewModelTests
 
         Assert.True(vm.IsSystemHostsEditingEnabled);
         Assert.True(vm.SelectedSourceDetails.IsSystemHostsEditingEnabled);
+    }
+
+    [Fact]
+    public void OwnerEditStateChange_UpdatesChildState()
+    {
+        using var tempDir = new TempDirectory();
+        var hostsPath = Path.Combine(tempDir.Path, "system-hosts");
+        File.WriteAllText(hostsPath, "127.0.0.1 localhost\n");
+        var vm = CreateViewModel(tempDir.Path, hostsPath);
+        var notifications = new List<string>();
+        vm.SelectedSourceDetails.PropertyChanged += (_, e) => notifications.Add(e.PropertyName ?? string.Empty);
+
+        vm.IsSystemHostsEditingEnabled = true;
+
+        Assert.True(vm.SelectedSourceDetails.IsSystemHostsEditingEnabled);
+        Assert.Contains(nameof(SelectedSourceDetailsViewModel.IsSystemHostsEditingEnabled), notifications);
     }
 
     [Fact]

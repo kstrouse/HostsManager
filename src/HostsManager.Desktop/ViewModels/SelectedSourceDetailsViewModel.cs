@@ -1,46 +1,81 @@
+using System;
 using System.ComponentModel;
+using System.Threading.Tasks;
+using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using HostsManager.Desktop.Models;
 
 namespace HostsManager.Desktop.ViewModels;
 
-public sealed class SelectedSourceDetailsViewModel : ViewModelBase
+public sealed partial class SelectedSourceDetailsViewModel : ViewModelBase
 {
     private readonly MainWindowViewModel owner;
+    private readonly Func<Task> applyToSystemHostsAsync;
+    private readonly Action<bool> setSystemHostsEditingEnabled;
     private HostProfile? observedProfile;
+    private bool isSyncingSystemHostsEditingEnabled;
 
-    public SelectedSourceDetailsViewModel(MainWindowViewModel owner)
+    [ObservableProperty]
+    private HostProfile? selectedProfile;
+
+    [ObservableProperty]
+    private bool hasPendingElevatedHostsUpdate;
+
+    [ObservableProperty]
+    private bool isSystemHostsEditingEnabled;
+
+    public SelectedSourceDetailsViewModel(
+        MainWindowViewModel owner,
+        string hostsPath,
+        Func<Task> applyToSystemHostsAsync,
+        Action<bool> setSystemHostsEditingEnabled)
     {
         this.owner = owner;
+        HostsPath = hostsPath;
+        this.applyToSystemHostsAsync = applyToSystemHostsAsync;
+        this.setSystemHostsEditingEnabled = setSystemHostsEditingEnabled;
+        SelectedProfile = owner.SelectedProfile;
+        HasPendingElevatedHostsUpdate = owner.HasPendingElevatedHostsUpdate;
+        isSyncingSystemHostsEditingEnabled = true;
+        IsSystemHostsEditingEnabled = owner.IsSystemHostsEditingEnabled;
+        isSyncingSystemHostsEditingEnabled = false;
         owner.PropertyChanged += OnOwnerPropertyChanged;
-        UpdateObservedProfile(owner.SelectedProfile);
+        UpdateObservedProfile(SelectedProfile);
     }
 
-    public HostProfile? SelectedProfile => owner.SelectedProfile;
+    public string HostsPath { get; }
 
-    public bool HasPendingElevatedHostsUpdate => owner.HasPendingElevatedHostsUpdate;
+    public bool IsSelectedSourceReadOnly => SelectedProfile?.IsReadOnly == true;
 
-    public IAsyncRelayCommand ApplyToSystemHostsCommand => owner.ApplyToSystemHostsCommand;
-
-    public string HostsPath => owner.HostsPath;
-
-    public bool IsSelectedSourceReadOnly => owner.SelectedProfile?.IsReadOnly == true;
-
-    public string SelectedSourceTypeDisplay => owner.SelectedProfile switch
+    public string SelectedSourceTypeDisplay => SelectedProfile switch
     {
         null => string.Empty,
         { SourceType: SourceType.Remote } profile => $"Remote ({GetRemoteTransportDisplay(profile.RemoteTransport)})",
         { SourceType: SourceType.Local } => "Local",
         { SourceType: SourceType.System } => "System",
-        _ => owner.SelectedProfile.SourceType.ToString()
+        _ => SelectedProfile.SourceType.ToString()
     };
 
-    public bool IsSystemSelected => owner.SelectedProfile?.SourceType == SourceType.System;
+    public bool IsSystemSelected => SelectedProfile?.SourceType == SourceType.System;
 
-    public bool IsSystemHostsEditingEnabled
+    [RelayCommand]
+    private Task ApplyToSystemHostsAsync()
     {
-        get => owner.IsSystemHostsEditingEnabled;
-        set => owner.IsSystemHostsEditingEnabled = value;
+        return applyToSystemHostsAsync();
+    }
+
+    partial void OnSelectedProfileChanged(HostProfile? value)
+    {
+        UpdateObservedProfile(value);
+        RaiseSourceStateChanged();
+    }
+
+    partial void OnIsSystemHostsEditingEnabledChanged(bool value)
+    {
+        if (isSyncingSystemHostsEditingEnabled)
+            return;
+
+        setSystemHostsEditingEnabled(value);
     }
 
     private void OnOwnerPropertyChanged(object? sender, PropertyChangedEventArgs e)
@@ -48,14 +83,22 @@ public sealed class SelectedSourceDetailsViewModel : ViewModelBase
         switch (e.PropertyName)
         {
             case nameof(MainWindowViewModel.SelectedProfile):
-                UpdateObservedProfile(owner.SelectedProfile);
-                RaiseSourceStateChanged();
+                SelectedProfile = owner.SelectedProfile;
                 break;
             case nameof(MainWindowViewModel.HasPendingElevatedHostsUpdate):
-                OnPropertyChanged(nameof(HasPendingElevatedHostsUpdate));
+                HasPendingElevatedHostsUpdate = owner.HasPendingElevatedHostsUpdate;
                 break;
             case nameof(MainWindowViewModel.IsSystemHostsEditingEnabled):
-                OnPropertyChanged(nameof(IsSystemHostsEditingEnabled));
+                isSyncingSystemHostsEditingEnabled = true;
+                try
+                {
+                    IsSystemHostsEditingEnabled = owner.IsSystemHostsEditingEnabled;
+                }
+                finally
+                {
+                    isSyncingSystemHostsEditingEnabled = false;
+                }
+
                 break;
         }
     }
@@ -82,7 +125,6 @@ public sealed class SelectedSourceDetailsViewModel : ViewModelBase
 
     private void RaiseSourceStateChanged()
     {
-        OnPropertyChanged(nameof(SelectedProfile));
         OnPropertyChanged(nameof(IsSelectedSourceReadOnly));
         OnPropertyChanged(nameof(SelectedSourceTypeDisplay));
         OnPropertyChanged(nameof(IsSystemSelected));

@@ -85,7 +85,6 @@ public partial class MainWindowViewModel : ViewModelBase
     public SourceEditorPaneViewModel SourceEditor { get; }
     public StatusActionBarViewModel StatusBar { get; }
 
-    public string HostsPath { get; }
     public bool IsSelectedEntriesReadOnly => SelectedProfile switch
     {
         null => true,
@@ -217,7 +216,11 @@ public partial class MainWindowViewModel : ViewModelBase
             localSourceWatcherService,
             source => HandleRemoteSourceToggledAsync(source),
             () => this.backgroundManagementCoordinator.RequestImmediateReconcileAsync());
-        SelectedSourceDetails = new SelectedSourceDetailsViewModel(this);
+        SelectedSourceDetails = new SelectedSourceDetailsViewModel(
+            this,
+            this.systemHostsWorkflowService.GetHostsFilePath(),
+            () => ApplyToSystemHostsAsync(),
+            value => IsSystemHostsEditingEnabled = value);
         LocalEditor = new LocalSourceEditorViewModel(
             this,
             localSourceService,
@@ -247,8 +250,6 @@ public partial class MainWindowViewModel : ViewModelBase
         StatusBar = new StatusActionBarViewModel(this, startupRegistrationService.IsSupported);
 
         this.refreshTimer.Tick += async (_, _) => await RefreshRemoteProfilesAsync(forceAll: false, userInitiated: false);
-
-        HostsPath = this.systemHostsWorkflowService.GetHostsFilePath();
     }
 
     private static HttpClient CreateDefaultHttpClient()
