@@ -228,6 +228,7 @@ public sealed class MainWindowViewModelTests
             new LocalSourceService(),
             null,
             new LocalSourceWatcherService(),
+            null,
             new FakeStartupRegistrationService(),
             new FakeWindowsElevationService(),
             httpClient ?? new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)

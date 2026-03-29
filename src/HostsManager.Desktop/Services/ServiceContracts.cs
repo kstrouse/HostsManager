@@ -99,6 +99,19 @@ public interface ILocalSourceRefreshService
         CancellationToken cancellationToken = default);
 }
 
+public interface IBackgroundManagementService
+{
+    Task<bool> PersistConfigurationIfChangedAsync(
+        bool minimizeToTrayOnClose,
+        bool runAtStartup,
+        IEnumerable<HostProfile> profiles,
+        CancellationToken cancellationToken = default);
+
+    Task<BackgroundManagementResult> RunPassAsync(
+        BackgroundManagementRequest request,
+        CancellationToken cancellationToken = default);
+}
+
 public interface IStartupRegistrationService
 {
     bool IsSupported { get; }

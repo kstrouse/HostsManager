@@ -24,6 +24,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly ILocalSourceService localSourceService;
     private readonly ILocalSourceRefreshService localSourceRefreshService;
     private readonly ILocalSourceWatcherService localSourceWatcherService;
+    private readonly IBackgroundManagementService backgroundManagementService;
     private readonly IHostsStateTracker hostsStateTracker;
     private readonly IRemoteSourceSyncService remoteSourceSyncService;
     private readonly IStartupRegistrationService startupRegistrationService;
@@ -34,7 +35,6 @@ public partial class MainWindowViewModel : ViewModelBase
     private bool isManageRunning;
     private bool isReconcileScheduled;
     private bool reconcileRequested;
-    private bool systemHostsRefreshPulseRequested;
     private bool isInitializing;
     private bool isInitialized;
     private bool isUpdatingRunAtStartup;
@@ -150,6 +150,7 @@ public partial class MainWindowViewModel : ViewModelBase
             new LocalSourceService(),
             null,
             new LocalSourceWatcherService(),
+            null,
             new StartupRegistrationService(),
             new WindowsElevationService(),
             CreateDefaultHttpClient(),
@@ -168,6 +169,7 @@ public partial class MainWindowViewModel : ViewModelBase
         ILocalSourceService localSourceService,
         ILocalSourceRefreshService? localSourceRefreshService,
         ILocalSourceWatcherService localSourceWatcherService,
+        IBackgroundManagementService? backgroundManagementService,
         IStartupRegistrationService startupRegistrationService,
         IWindowsElevationService windowsElevationService,
         HttpClient httpClient,
@@ -188,6 +190,12 @@ public partial class MainWindowViewModel : ViewModelBase
         this.localSourceRefreshService = localSourceRefreshService ?? new LocalSourceRefreshService(localSourceService, resolvedSystemHostsWorkflowService);
         this.localSourceWatcherService = localSourceWatcherService;
         this.hostsStateTracker = hostsStateTracker ?? new HostsStateTracker();
+        this.backgroundManagementService = backgroundManagementService ?? new BackgroundManagementService(
+            profileStore,
+            this.hostsStateTracker,
+            localSourceWatcherService,
+            this.localSourceRefreshService,
+            resolvedSystemHostsWorkflowService);
         this.startupRegistrationService = startupRegistrationService;
         this.systemHostsWorkflowService = resolvedSystemHostsWorkflowService;
         var resolvedAzurePrivateDnsService = azurePrivateDnsService ?? new AzurePrivateDnsService(httpClient);
@@ -928,61 +936,33 @@ public partial class MainWindowViewModel : ViewModelBase
             do
             {
                 reconcileRequested = false;
-                systemHostsRefreshPulseRequested = false;
+                var result = await backgroundManagementService.RunPassAsync(new BackgroundManagementRequest
+                {
+                    MinimizeToTrayOnClose = MinimizeToTrayOnClose,
+                    RunAtStartup = RunAtStartup,
+                    Profiles = Profiles.ToList(),
+                    SelectedProfile = SelectedProfile
+                });
 
-                localSourceWatcherService.SyncWatchedSources(Profiles);
+                foreach (var source in result.MissingStateChangedSources)
+                {
+                    ApplyMissingLocalSourceStateChanged(source);
+                }
 
-                await PersistSourcesIfChangedAsync();
+                if (result.SourceWithExternalChanges is not null)
+                {
+                    SetSelectedSourceExternalChangeNotification(result.SourceWithExternalChanges);
+                }
 
-                var localContentChanged = await ReloadLocalSourcesFromDiskIfNeededAsync();
-                if (localContentChanged)
+                if (result.SelectedProfileChanged)
                 {
                     OnPropertyChanged(nameof(SelectedProfile));
-                    await PersistSourcesIfChangedAsync();
                 }
 
-                var needsElevatedApply = NeedsElevatedApply();
-                var applyEvaluation = hostsStateTracker.EvaluateManagedApply(Profiles, managedHostsMatch: !needsElevatedApply);
-                if (!needsElevatedApply)
+                HasPendingElevatedHostsUpdate = result.HasPendingElevatedHostsUpdate;
+                if (!string.IsNullOrWhiteSpace(result.StatusMessage))
                 {
-                    HasPendingElevatedHostsUpdate = false;
-                    continue;
-                }
-
-                if (!applyEvaluation.ShouldApply)
-                {
-                    continue;
-                }
-
-                try
-                {
-                    await systemHostsWorkflowService.ApplyManagedHostsAsync(Profiles);
-                    var systemChangedAfterApply = await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: true);
-                    hostsStateTracker.MarkManagedApplySucceeded(Profiles);
-                    HasPendingElevatedHostsUpdate = false;
-
-                    if (applyEvaluation.HadAppliedChangeBefore || localContentChanged || systemChangedAfterApply)
-                    {
-                        StatusMessage = "Background manager applied source changes to hosts file.";
-                    }
-
-                    if (systemHostsRefreshPulseRequested)
-                    {
-                        StatusMessage = "System Hosts refreshed from disk.";
-                    }
-                }
-                catch (UnauthorizedAccessException)
-                {
-                    hostsStateTracker.MarkManagedApplyAttempted(Profiles);
-                    if (NeedsElevatedApply())
-                    {
-                        SetPendingElevatedHostsUpdate(forBackgroundApply: true);
-                    }
-                }
-                catch (Exception ex)
-                {
-                    hostsStateTracker.MarkManagedApplyAttempted(Profiles);
-                    StatusMessage = $"Background apply failed: {ex.Message}";
+                    StatusMessage = result.StatusMessage;
                 }
             }
             while (reconcileRequested);
@@ -997,51 +977,6 @@ public partial class MainWindowViewModel : ViewModelBase
         }
     }
 
-    private async Task PersistSourcesIfChangedAsync()
-    {
-        if (!hostsStateTracker.NeedsConfigurationSave(MinimizeToTrayOnClose, RunAtStartup, Profiles))
-        {
-            return;
-        }
-
-        try
-        {
-            await SaveConfigurationAsync();
-            hostsStateTracker.MarkConfigurationSaved(MinimizeToTrayOnClose, RunAtStartup, Profiles);
-        }
-        catch
-        {
-        }
-    }
-
-    private async Task<bool> ReloadLocalSourcesFromDiskIfNeededAsync()
-    {
-        var changed = await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: true, skipSelectedProfile: true);
-
-        if (!localSourceWatcherService.ConsumeDirty())
-        {
-            return changed;
-        }
-
-        var refreshResult = await localSourceRefreshService.RefreshLocalSourcesAsync(Profiles, SelectedProfile);
-        foreach (var source in refreshResult.MissingStateChangedSources)
-        {
-            ApplyMissingLocalSourceStateChanged(source);
-        }
-
-        if (refreshResult.SelectedSourceWithExternalChanges is not null)
-        {
-            SetSelectedSourceExternalChangeNotification(refreshResult.SelectedSourceWithExternalChanges);
-        }
-
-        if (refreshResult.SelectedProfileChanged)
-        {
-            OnPropertyChanged(nameof(SelectedProfile));
-        }
-
-        return changed || refreshResult.AnyContentChanged;
-    }
-
     partial void OnMinimizeToTrayOnCloseChanged(bool value)
     {
         if (isInitializing)
@@ -1049,7 +984,7 @@ public partial class MainWindowViewModel : ViewModelBase
             return;
         }
 
-        _ = PersistSourcesIfChangedAsync();
+        _ = backgroundManagementService.PersistConfigurationIfChangedAsync(MinimizeToTrayOnClose, RunAtStartup, Profiles);
     }
 
     partial void OnRunAtStartupChanged(bool value)
@@ -1236,7 +1171,7 @@ public partial class MainWindowViewModel : ViewModelBase
         try
         {
             await startupRegistrationService.SetEnabledAsync(value);
-            await PersistSourcesIfChangedAsync();
+            await backgroundManagementService.PersistConfigurationIfChangedAsync(MinimizeToTrayOnClose, RunAtStartup, Profiles);
             StatusMessage = value
                 ? "Startup enabled. Hosts Manager will launch at Windows sign-in."
                 : "Startup disabled.";
@@ -1309,11 +1244,6 @@ public partial class MainWindowViewModel : ViewModelBase
             var current = SelectedProfile;
             SelectedProfile = null;
             SelectedProfile = current;
-        }
-
-        if (refreshResult.RefreshPulseRequested)
-        {
-            systemHostsRefreshPulseRequested = true;
         }
 
         return refreshResult.Changed;
