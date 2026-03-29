@@ -173,6 +173,21 @@ public interface IRemoteSyncWorkflowService
         CancellationToken cancellationToken = default);
 }
 
+public interface IProfilePersistenceService
+{
+    Task SaveConfigurationAsync(
+        bool minimizeToTrayOnClose,
+        bool runAtStartup,
+        IEnumerable<HostProfile> profiles,
+        CancellationToken cancellationToken = default);
+
+    Task SaveConfigurationAndMarkSavedAsync(
+        bool minimizeToTrayOnClose,
+        bool runAtStartup,
+        IEnumerable<HostProfile> profiles,
+        CancellationToken cancellationToken = default);
+}
+
 public interface IStartupRegistrationService
 {
     bool IsSupported { get; }

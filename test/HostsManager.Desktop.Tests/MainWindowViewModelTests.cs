@@ -279,6 +279,7 @@ public sealed class MainWindowViewModelTests
             null,
             null,
             null,
+            null,
             null);
     }
 }

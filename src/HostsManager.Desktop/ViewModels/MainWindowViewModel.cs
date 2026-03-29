@@ -28,6 +28,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly IBackgroundManagementService backgroundManagementService;
     private readonly IBackgroundManagementCoordinator backgroundManagementCoordinator;
     private readonly IHostsStateTracker hostsStateTracker;
+    private readonly IProfilePersistenceService profilePersistenceService;
     private readonly IRemoteSourceSyncService remoteSourceSyncService;
     private readonly IRemoteSyncWorkflowService remoteSyncWorkflowService;
     private readonly IProfileSelectionService profileSelectionService;
@@ -165,6 +166,7 @@ public partial class MainWindowViewModel : ViewModelBase
             null,
             null,
             null,
+            null,
             null)
     {
     }
@@ -184,6 +186,7 @@ public partial class MainWindowViewModel : ViewModelBase
         IUiTimer? manageTimer = null,
         IBackgroundManagementCoordinator? backgroundManagementCoordinator = null,
         IHostsStateTracker? hostsStateTracker = null,
+        IProfilePersistenceService? profilePersistenceService = null,
         ISystemHostsWorkflowService? systemHostsWorkflowService = null,
         IRemoteSourceSyncService? remoteSourceSyncService = null,
         IRemoteSyncWorkflowService? remoteSyncWorkflowService = null,
@@ -200,6 +203,7 @@ public partial class MainWindowViewModel : ViewModelBase
         this.localSourceRefreshService = localSourceRefreshService ?? new LocalSourceRefreshService(localSourceService, resolvedSystemHostsWorkflowService);
         this.localSourceWatcherService = localSourceWatcherService;
         this.hostsStateTracker = hostsStateTracker ?? new HostsStateTracker();
+        this.profilePersistenceService = profilePersistenceService ?? new ProfilePersistenceService(profileStore, this.hostsStateTracker);
         this.backgroundManagementService = backgroundManagementService ?? new BackgroundManagementService(
             profileStore,
             this.hostsStateTracker,
@@ -322,8 +326,10 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         try
         {
-            await SaveConfigurationAsync();
-            hostsStateTracker.MarkConfigurationSaved(MinimizeToTrayOnClose, RunAtStartup, Profiles);
+            await profilePersistenceService.SaveConfigurationAndMarkSavedAsync(
+                MinimizeToTrayOnClose,
+                RunAtStartup,
+                Profiles);
             await backgroundManagementCoordinator.RunNowAsync();
             StatusMessage = "Sources saved.";
         }
@@ -394,7 +400,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public void AddRemoteSource(RemoteTransport remoteTransport)
     {
-        var sourceIndex = GetPersistedSources().Count() + 1;
+        var sourceIndex = Profiles.Count(source => !source.IsReadOnly) + 1;
         var profile = new HostProfile
         {
             Name = $"Remote Source {sourceIndex}",
@@ -790,7 +796,10 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         if (result.ShouldPersistConfiguration)
         {
-            await SaveConfigurationAsync();
+            await profilePersistenceService.SaveConfigurationAsync(
+                MinimizeToTrayOnClose,
+                RunAtStartup,
+                Profiles);
         }
 
         if (result.ShouldNotifySelectedProfileChanged)
@@ -813,7 +822,10 @@ public partial class MainWindowViewModel : ViewModelBase
     {
         if (result.ShouldPersistConfiguration)
         {
-            await SaveConfigurationAsync();
+            await profilePersistenceService.SaveConfigurationAsync(
+                MinimizeToTrayOnClose,
+                RunAtStartup,
+                Profiles);
         }
 
         if (result.ShouldNotifySelectedProfileChanged)
@@ -1101,21 +1113,6 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             ReplaceAzureZones([]);
         }
-    }
-
-    private IEnumerable<HostProfile> GetPersistedSources()
-    {
-        return Profiles.Where(source => !source.IsReadOnly);
-    }
-
-    private Task SaveConfigurationAsync()
-    {
-        return profileStore.SaveAsync(new AppConfig
-        {
-            MinimizeToTrayOnClose = MinimizeToTrayOnClose,
-            RunAtStartup = RunAtStartup,
-            Profiles = GetPersistedSources().ToList()
-        });
     }
 
     private async Task EnsureRunAtStartupMatchesPreferenceAsync()
