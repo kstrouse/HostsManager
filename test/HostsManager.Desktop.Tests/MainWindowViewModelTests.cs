@@ -247,12 +247,41 @@ public sealed class MainWindowViewModelTests
         Assert.Single(vm.AzureZones);
     }
 
+    [Fact]
+    public async Task BackgroundReconcile_KeepsPendingElevationBannerVisibleAcrossSuppressedRetry()
+    {
+        var cancellationToken = TestContext.Current.CancellationToken;
+        using var tempDir = new TempDirectory();
+        var hostsPath = Path.Combine(tempDir.Path, "system-hosts");
+        await File.WriteAllTextAsync(hostsPath, "127.0.0.1 localhost\n", cancellationToken);
+        var backgroundService = new StubBackgroundManagementService();
+        backgroundService.Results.Enqueue(new BackgroundManagementResult
+        {
+            PendingElevatedHostsUpdate = true,
+            StatusMessage = "Pending hosts changes need administrator approval. Click Apply to elevate."
+        });
+        backgroundService.Results.Enqueue(new BackgroundManagementResult
+        {
+            StatusMessage = "Still pending."
+        });
+        var vm = CreateViewModel(tempDir.Path, hostsPath, backgroundManagementService: backgroundService);
+
+        await vm.InitializeAsync();
+        Assert.True(vm.HasPendingElevatedHostsUpdate);
+
+        await vm.RequestImmediateReconcileAsync();
+        await Task.Yield();
+
+        Assert.True(vm.HasPendingElevatedHostsUpdate);
+    }
+
     private static MainWindowViewModel CreateViewModel(
         string tempRoot,
         string hostsPath,
         IProfileStore? profileStore = null,
         HttpClient? httpClient = null,
-        IAzurePrivateDnsService? azureService = null)
+        IAzurePrivateDnsService? azureService = null,
+        IBackgroundManagementService? backgroundManagementService = null)
     {
         Directory.CreateDirectory(Path.Combine(tempRoot, "config"));
         var hostsService = new HostsFileService(Path.Combine(tempRoot, "appdata"), hostsPath);
@@ -263,7 +292,7 @@ public sealed class MainWindowViewModelTests
             new LocalSourceService(),
             null,
             new LocalSourceWatcherService(),
-            null,
+            backgroundManagementService,
             new FakeStartupRegistrationService(),
             new FakeWindowsElevationService(),
             httpClient ?? new HttpClient(new StubHttpMessageHandler(_ => new HttpResponseMessage(HttpStatusCode.OK)
@@ -282,5 +311,20 @@ public sealed class MainWindowViewModelTests
             null,
             null,
             null);
+    }
+
+    private sealed class StubBackgroundManagementService : IBackgroundManagementService
+    {
+        public Queue<BackgroundManagementResult> Results { get; } = new();
+
+        public Task<bool> PersistConfigurationIfChangedAsync(bool minimizeToTrayOnClose, bool runAtStartup, IEnumerable<HostProfile> profiles, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(false);
+        }
+
+        public Task<BackgroundManagementResult> RunPassAsync(BackgroundManagementRequest request, CancellationToken cancellationToken = default)
+        {
+            return Task.FromResult(Results.Count > 0 ? Results.Dequeue() : new BackgroundManagementResult());
+        }
     }
 }
