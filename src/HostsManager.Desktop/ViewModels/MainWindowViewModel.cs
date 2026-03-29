@@ -102,6 +102,7 @@ public partial class MainWindowViewModel : ViewModelBase
     public SelectedSourceDetailsViewModel SelectedSourceDetails { get; }
     public LocalSourceEditorViewModel LocalEditor { get; }
     public RemoteSourceEditorViewModel RemoteEditor { get; }
+    public SourceEditorPaneViewModel SourceEditor { get; }
     public StatusActionBarViewModel StatusBar { get; }
 
     public string HostsPath { get; }
@@ -248,6 +249,7 @@ public partial class MainWindowViewModel : ViewModelBase
         SelectedSourceDetails = new SelectedSourceDetailsViewModel(this);
         LocalEditor = new LocalSourceEditorViewModel(this);
         RemoteEditor = new RemoteSourceEditorViewModel(this);
+        SourceEditor = new SourceEditorPaneViewModel(this);
         StatusBar = new StatusActionBarViewModel(this, startupRegistrationService.IsSupported);
 
         this.refreshTimer.Tick += async (_, _) => await RefreshRemoteProfilesAsync(forceAll: false, userInitiated: false);

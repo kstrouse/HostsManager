@@ -2,7 +2,6 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
     xmlns:vm="using:HostsManager.Desktop.ViewModels"
     xmlns:views="using:HostsManager.Desktop.Views"
-    xmlns:ae="clr-namespace:AvaloniaEdit;assembly=AvaloniaEdit"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="760"
@@ -56,44 +55,8 @@
                           VerticalAlignment="Stretch"
                           ShowsPreview="True" />
 
-            <Border Classes="panel" Grid.Column="2" Padding="12">
-                <Grid RowDefinitions="Auto,Auto,Auto,Auto,Auto,*" RowSpacing="8">
-                    <views:SelectedSourceDetailsView Grid.Row="0"
-                                                     DataContext="{Binding SelectedSourceDetails}" />
-
-                    <Grid Grid.Row="1" ColumnDefinitions="*,Auto,Auto" ColumnSpacing="8">
-                        <TextBlock Text="Source Editor" FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" />
-                        <Button Grid.Column="1" Name="SaveSelectedSourceButton" Content="Save" Click="SaveSelectedSourceClick" />
-                        <TextBlock Grid.Column="2"
-                                   Name="UnsavedIndicator"
-                                   Text="Unsaved"
-                                   IsVisible="False"
-                                   Foreground="#FFCC80"
-                                   Opacity="0.95"
-                                   VerticalAlignment="Center" />
-                    </Grid>
-
-                    <views:LocalSourceEditorView Grid.Row="2"
-                                                 DataContext="{Binding LocalEditor}" />
-
-                    <views:RemoteSourceEditorView Grid.Row="3"
-                                                  DataContext="{Binding RemoteEditor}" />
-
-                    <TextBlock Grid.Row="4" Classes="label" Text="Hosts Entries" />
-
-                    <Border Grid.Row="5" BorderBrush="#2F3742" BorderThickness="1" CornerRadius="6" Background="#141A22" Padding="2">
-                        <ae:TextEditor Name="HostsEntriesEditor"
-                                       IsReadOnly="{Binding IsSelectedEntriesReadOnly}"
-                                       ShowLineNumbers="True"
-                                       FontFamily="Consolas"
-                                       Foreground="#E6EDF3"
-                                       Background="#141A22"
-                                       HorizontalScrollBarVisibility="Auto"
-                                       VerticalScrollBarVisibility="Auto"
-                                       MinHeight="360" />
-                    </Border>
-                </Grid>
-            </Border>
+            <views:SourceEditorPaneView Grid.Column="2"
+                                        DataContext="{Binding SourceEditor}" />
         </Grid>
 
         <views:StatusActionBarView Grid.Row="1"
