@@ -5,7 +5,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$projectPath = Join-Path $PSScriptRoot "HostsManager\HostsManager.csproj"
+$projectPath = Join-Path $PSScriptRoot "src\HostsManager.Desktop\HostsManager.Desktop.csproj"
 $publishRoot = Join-Path $PSScriptRoot "artifacts\publish"
 
 foreach ($rid in $RuntimeIdentifiers) {

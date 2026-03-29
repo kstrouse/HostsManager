@@ -1,0 +1,30 @@
+name: build-and-test
+
+on:
+  push:
+    branches:
+      - main
+      - master
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 10.0.x
+
+      - name: Restore
+        run: dotnet restore HostsManager.slnx
+
+      - name: Build
+        run: dotnet build HostsManager.slnx --configuration Release --no-restore
+
+      - name: Test
+        run: dotnet test HostsManager.slnx --configuration Release --no-build

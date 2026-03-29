@@ -1,0 +1,37 @@
+<UserControl xmlns="https://github.com/avaloniaui"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:vm="using:HostsManager.Desktop.ViewModels"
+             x:Class="HostsManager.Desktop.Views.LocalSourceEditorView"
+             x:DataType="vm:LocalSourceEditorViewModel">
+    <Border Classes="panel" Padding="10" IsVisible="{Binding IsVisible}">
+        <StackPanel Spacing="8">
+            <TextBlock Classes="label" Text="Local Source" />
+            <Border IsVisible="{Binding IsSelectedLocalFileMissing}"
+                    Background="#3A2414"
+                    BorderBrush="#7A4A1F"
+                    BorderThickness="1"
+                    CornerRadius="6"
+                    Padding="8,6">
+                <Grid ColumnDefinitions="*,Auto" ColumnSpacing="10">
+                    <TextBlock Grid.Column="0"
+                               Text="Local source file was not found. This source has been disabled until the file is restored."
+                               TextWrapping="Wrap"
+                               VerticalAlignment="Center"
+                               Foreground="#FFD8A8"
+                               FontSize="11" />
+                    <Button Grid.Column="1"
+                            Content="Re-create File"
+                            Command="{Binding RecreateMissingLocalFileCommand}" />
+                </Grid>
+            </Border>
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <TextBlock Classes="label" VerticalAlignment="Center" Text="File" />
+                <TextBlock VerticalAlignment="Center" Opacity="0.78" Text="{Binding SelectedLocalFilePath}" />
+            </StackPanel>
+            <StackPanel Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+                <Button Classes="action" Content="Rename File" Click="RenameLocalFileClick" />
+                <Button Classes="action" Content="Open Folder" Command="{Binding OpenSelectedLocalFolderCommand}" />
+            </StackPanel>
+        </StackPanel>
+    </Border>
+</UserControl>

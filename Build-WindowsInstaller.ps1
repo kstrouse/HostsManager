@@ -1,13 +1,13 @@
 param(
     [string]$Configuration = "Release",
     [string]$RuntimeIdentifier = "win-x64",
-    [string]$Version = "1.0.0",
+    [string]$Version = "0.1.0",
     [switch]$SkipPublish
 )
 
 $ErrorActionPreference = "Stop"
 
-$projectPath = Join-Path $PSScriptRoot "HostsManager\HostsManager.csproj"
+$projectPath = Join-Path $PSScriptRoot "src\HostsManager.Desktop\HostsManager.Desktop.csproj"
 $publishRoot = Join-Path $PSScriptRoot "artifacts\publish"
 $outputPath = Join-Path $publishRoot $RuntimeIdentifier
 $installerRoot = Join-Path $PSScriptRoot "artifacts\installer"
