@@ -112,6 +112,15 @@ public interface IBackgroundManagementService
         CancellationToken cancellationToken = default);
 }
 
+public interface IBackgroundManagementCoordinator
+{
+    void Start();
+
+    Task RunNowAsync(CancellationToken cancellationToken = default);
+
+    Task RequestImmediateReconcileAsync(CancellationToken cancellationToken = default);
+}
+
 public interface IStartupRegistrationService
 {
     bool IsSupported { get; }

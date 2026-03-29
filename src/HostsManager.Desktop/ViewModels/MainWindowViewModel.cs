@@ -25,16 +25,13 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly ILocalSourceRefreshService localSourceRefreshService;
     private readonly ILocalSourceWatcherService localSourceWatcherService;
     private readonly IBackgroundManagementService backgroundManagementService;
+    private readonly IBackgroundManagementCoordinator backgroundManagementCoordinator;
     private readonly IHostsStateTracker hostsStateTracker;
     private readonly IRemoteSourceSyncService remoteSourceSyncService;
     private readonly IStartupRegistrationService startupRegistrationService;
     private readonly ISystemHostsWorkflowService systemHostsWorkflowService;
     private readonly IUiTimer refreshTimer;
-    private readonly IUiTimer manageTimer;
     private bool isRefreshRunning;
-    private bool isManageRunning;
-    private bool isReconcileScheduled;
-    private bool reconcileRequested;
     private bool isInitializing;
     private bool isInitialized;
     private bool isUpdatingRunAtStartup;
@@ -159,6 +156,7 @@ public partial class MainWindowViewModel : ViewModelBase
             CreateTimer(TimeSpan.FromSeconds(2)),
             null,
             null,
+            null,
             null)
     {
     }
@@ -176,6 +174,7 @@ public partial class MainWindowViewModel : ViewModelBase
         IAzurePrivateDnsService? azurePrivateDnsService = null,
         IUiTimer? refreshTimer = null,
         IUiTimer? manageTimer = null,
+        IBackgroundManagementCoordinator? backgroundManagementCoordinator = null,
         IHostsStateTracker? hostsStateTracker = null,
         ISystemHostsWorkflowService? systemHostsWorkflowService = null,
         IRemoteSourceSyncService? remoteSourceSyncService = null)
@@ -201,10 +200,19 @@ public partial class MainWindowViewModel : ViewModelBase
         var resolvedAzurePrivateDnsService = azurePrivateDnsService ?? new AzurePrivateDnsService(httpClient);
         this.remoteSourceSyncService = remoteSourceSyncService ?? new RemoteSourceSyncService(httpClient, resolvedAzurePrivateDnsService);
         this.refreshTimer = refreshTimer ?? CreateTimer(TimeSpan.FromMinutes(1));
-        this.manageTimer = manageTimer ?? CreateTimer(TimeSpan.FromSeconds(2));
+        var resolvedManageTimer = manageTimer ?? CreateTimer(TimeSpan.FromSeconds(2));
+        this.backgroundManagementCoordinator = backgroundManagementCoordinator ?? new BackgroundManagementCoordinator(
+            this.backgroundManagementService,
+            resolvedManageTimer,
+            action => _ = Dispatcher.UIThread.InvokeAsync(async () =>
+            {
+                await Task.Yield();
+                await action();
+            }),
+            BuildBackgroundManagementRequest,
+            ApplyBackgroundManagementResult);
 
         this.refreshTimer.Tick += async (_, _) => await RefreshRemoteProfilesAsync(forceAll: false, userInitiated: false);
-        this.manageTimer.Tick += async (_, _) => await RunBackgroundManagementTickAsync();
 
         HostsPath = this.systemHostsWorkflowService.GetHostsFilePath();
     }
@@ -247,9 +255,9 @@ public partial class MainWindowViewModel : ViewModelBase
             hostsStateTracker.MarkConfigurationSaved(MinimizeToTrayOnClose, RunAtStartup, Profiles);
 
             refreshTimer.Start();
-            manageTimer.Start();
+            backgroundManagementCoordinator.Start();
             localSourceWatcherService.MarkDirty();
-            await RunBackgroundManagementTickAsync();
+            await backgroundManagementCoordinator.RunNowAsync();
             var hadPendingStartupAction = Program.PendingStartupAction != StartupAction.None;
             await ExecutePendingStartupActionAsync();
 
@@ -277,7 +285,7 @@ public partial class MainWindowViewModel : ViewModelBase
         {
             await SaveConfigurationAsync();
             hostsStateTracker.MarkConfigurationSaved(MinimizeToTrayOnClose, RunAtStartup, Profiles);
-            await RunBackgroundManagementTickAsync();
+            await backgroundManagementCoordinator.RunNowAsync();
             StatusMessage = "Sources saved.";
         }
         catch (Exception ex)
@@ -505,7 +513,7 @@ public partial class MainWindowViewModel : ViewModelBase
             await File.WriteAllTextAsync(SelectedProfile.LocalPath, SelectedProfile.Entries ?? string.Empty);
             SelectedProfile.LastLoadedFromDiskEntries = SelectedProfile.Entries ?? string.Empty;
             localSourceWatcherService.MarkDirty();
-            await RunBackgroundManagementTickAsync();
+            await backgroundManagementCoordinator.RunNowAsync();
             StatusMessage = "Saved entries to local source file.";
         }
         catch (Exception ex)
@@ -530,7 +538,7 @@ public partial class MainWindowViewModel : ViewModelBase
             {
                 await SaveConfigurationAsync();
                 OnPropertyChanged(nameof(SelectedProfile));
-                await RunBackgroundManagementTickAsync();
+                await backgroundManagementCoordinator.RunNowAsync();
                 StatusMessage = "Synced selected remote source.";
                 return;
             }
@@ -556,7 +564,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private async Task SyncAllFromUrlAsync()
     {
         await RefreshRemoteProfilesAsync(forceAll: true, userInitiated: true);
-        await RunBackgroundManagementTickAsync();
+        await backgroundManagementCoordinator.RunNowAsync();
     }
 
     [RelayCommand]
@@ -718,7 +726,7 @@ public partial class MainWindowViewModel : ViewModelBase
             {
                 await SaveConfigurationAsync();
                 OnPropertyChanged(nameof(SelectedProfile));
-                await RunBackgroundManagementTickAsync();
+                await backgroundManagementCoordinator.RunNowAsync();
             }
 
             if (userInitiated)
@@ -809,7 +817,7 @@ public partial class MainWindowViewModel : ViewModelBase
                 OnPropertyChanged(nameof(SelectedProfile));
             }
 
-            await RunBackgroundManagementTickAsync();
+            await backgroundManagementCoordinator.RunNowAsync();
             StatusMessage = synced
                 ? $"Synced remote source: {source.Name}"
                 : $"Remote source already up to date: {source.Name}";
@@ -902,78 +910,41 @@ public partial class MainWindowViewModel : ViewModelBase
 
     public Task RequestImmediateReconcileAsync()
     {
-        reconcileRequested = true;
-        ScheduleReconcile();
-        return Task.CompletedTask;
+        return backgroundManagementCoordinator.RequestImmediateReconcileAsync();
     }
 
-    private void ScheduleReconcile()
+    private BackgroundManagementRequest BuildBackgroundManagementRequest()
     {
-        if (isReconcileScheduled)
+        return new BackgroundManagementRequest
         {
-            return;
-        }
-
-        isReconcileScheduled = true;
-        _ = Dispatcher.UIThread.InvokeAsync(async () =>
-        {
-            await Task.Yield();
-            await RunBackgroundManagementTickAsync();
-        });
+            MinimizeToTrayOnClose = MinimizeToTrayOnClose,
+            RunAtStartup = RunAtStartup,
+            Profiles = Profiles.ToList(),
+            SelectedProfile = SelectedProfile
+        };
     }
 
-    private async Task RunBackgroundManagementTickAsync()
+    private void ApplyBackgroundManagementResult(BackgroundManagementResult result)
     {
-        if (isManageRunning)
+        foreach (var source in result.MissingStateChangedSources)
         {
-            return;
+            ApplyMissingLocalSourceStateChanged(source);
         }
 
-        isManageRunning = true;
-        isReconcileScheduled = false;
-        try
+        if (result.SourceWithExternalChanges is not null)
         {
-            do
-            {
-                reconcileRequested = false;
-                var result = await backgroundManagementService.RunPassAsync(new BackgroundManagementRequest
-                {
-                    MinimizeToTrayOnClose = MinimizeToTrayOnClose,
-                    RunAtStartup = RunAtStartup,
-                    Profiles = Profiles.ToList(),
-                    SelectedProfile = SelectedProfile
-                });
-
-                foreach (var source in result.MissingStateChangedSources)
-                {
-                    ApplyMissingLocalSourceStateChanged(source);
-                }
-
-                if (result.SourceWithExternalChanges is not null)
-                {
-                    SetSelectedSourceExternalChangeNotification(result.SourceWithExternalChanges);
-                }
-
-                if (result.SelectedProfileChanged)
-                {
-                    OnPropertyChanged(nameof(SelectedProfile));
-                }
-
-                HasPendingElevatedHostsUpdate = result.HasPendingElevatedHostsUpdate;
-                if (!string.IsNullOrWhiteSpace(result.StatusMessage))
-                {
-                    StatusMessage = result.StatusMessage;
-                }
-            }
-            while (reconcileRequested);
+            SetSelectedSourceExternalChangeNotification(result.SourceWithExternalChanges);
         }
-        finally
+
+        if (result.SelectedProfileChanged)
         {
-            isManageRunning = false;
-            if (reconcileRequested)
-            {
-                ScheduleReconcile();
-            }
+            OnPropertyChanged(nameof(SelectedProfile));
+        }
+
+        HasPendingElevatedHostsUpdate = result.HasPendingElevatedHostsUpdate;
+        if (!string.IsNullOrWhiteSpace(result.StatusMessage))
+        {
+            StatusMessage = result.StatusMessage;
         }
     }
 

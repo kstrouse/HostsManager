@@ -106,7 +106,7 @@ public partial class MainWindowViewModel
             RecreateMissingLocalFileCommand.NotifyCanExecuteChanged();
 
             await SaveProfilesAsync();
-            await RunBackgroundManagementTickAsync();
+            await backgroundManagementCoordinator.RunNowAsync();
             StatusMessage = $"Re-created local source file: {Path.GetFileName(profile.LocalPath)}";
         }
         catch (InvalidOperationException ex)

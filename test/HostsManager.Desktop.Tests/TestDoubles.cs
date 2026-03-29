@@ -28,12 +28,18 @@ internal sealed class ManualTimer : IUiTimer
 
     public TimeSpan Interval { get; set; }
 
+    public int StartCallCount { get; private set; }
+
+    public int StopCallCount { get; private set; }
+
     public void Start()
     {
+        StartCallCount++;
     }
 
     public void Stop()
     {
+        StopCallCount++;
     }
 
     public void Fire()
