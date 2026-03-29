@@ -133,6 +133,20 @@ public interface IProfileSelectionService
         AzureSubscriptionOption? selectedSubscription);
 }
 
+public interface IStartupActionOrchestrationService
+{
+    bool HasPendingStartupAction();
+
+    Task<ElevationLaunchResult> TryRelaunchElevatedAsync(
+        StartupAction action,
+        string? rawHostsContent = null,
+        CancellationToken cancellationToken = default);
+
+    Task<PendingStartupActionOutcome?> ExecutePendingStartupActionAsync(
+        IEnumerable<HostProfile> profiles,
+        CancellationToken cancellationToken = default);
+}
+
 public interface IStartupRegistrationService
 {
     bool IsSupported { get; }

@@ -273,6 +273,11 @@ public sealed class MainWindowViewModelTests
             azureService ?? new FakeAzurePrivateDnsService(),
             new ManualTimer(),
             new ManualTimer(),
+            null,
+            null,
+            null,
+            null,
+            null,
             null);
     }
 }

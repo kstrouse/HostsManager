@@ -29,6 +29,7 @@ public partial class MainWindowViewModel : ViewModelBase
     private readonly IHostsStateTracker hostsStateTracker;
     private readonly IRemoteSourceSyncService remoteSourceSyncService;
     private readonly IProfileSelectionService profileSelectionService;
+    private readonly IStartupActionOrchestrationService startupActionOrchestrationService;
     private readonly IStartupRegistrationService startupRegistrationService;
     private readonly ISystemHostsWorkflowService systemHostsWorkflowService;
     private readonly IUiTimer refreshTimer;
@@ -159,6 +160,8 @@ public partial class MainWindowViewModel : ViewModelBase
             null,
             null,
             null,
+            null,
+            null,
             null)
     {
     }
@@ -180,7 +183,8 @@ public partial class MainWindowViewModel : ViewModelBase
         IHostsStateTracker? hostsStateTracker = null,
         ISystemHostsWorkflowService? systemHostsWorkflowService = null,
         IRemoteSourceSyncService? remoteSourceSyncService = null,
-        IProfileSelectionService? profileSelectionService = null)
+        IProfileSelectionService? profileSelectionService = null,
+        IStartupActionOrchestrationService? startupActionOrchestrationService = null)
     {
         this.profileStore = profileStore;
         this.localSourceService = localSourceService;
@@ -203,6 +207,32 @@ public partial class MainWindowViewModel : ViewModelBase
         var resolvedAzurePrivateDnsService = azurePrivateDnsService ?? new AzurePrivateDnsService(httpClient);
         this.remoteSourceSyncService = remoteSourceSyncService ?? new RemoteSourceSyncService(httpClient, resolvedAzurePrivateDnsService);
         this.profileSelectionService = profileSelectionService ?? new ProfileSelectionService(this.remoteSourceSyncService);
+        this.startupActionOrchestrationService = startupActionOrchestrationService ?? new StartupActionOrchestrationService(
+            resolvedSystemHostsWorkflowService,
+            () => Program.PendingStartupAction,
+            () => Program.StartupActionPayloadPath,
+            Program.ConsumeStartupAction,
+            () =>
+            {
+                if (Program.StartInBackground)
+                {
+                    return true;
+                }
+
+                if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
+                {
+                    return false;
+                }
+
+                return desktop.MainWindow?.IsVisible != true;
+            },
+            () =>
+            {
+                if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
+                {
+                    desktop.Shutdown();
+                }
+            });
         this.refreshTimer = refreshTimer ?? CreateTimer(TimeSpan.FromMinutes(1));
         var resolvedManageTimer = manageTimer ?? CreateTimer(TimeSpan.FromSeconds(2));
         this.backgroundManagementCoordinator = backgroundManagementCoordinator ?? new BackgroundManagementCoordinator(
@@ -262,8 +292,8 @@ public partial class MainWindowViewModel : ViewModelBase
             backgroundManagementCoordinator.Start();
             localSourceWatcherService.MarkDirty();
             await backgroundManagementCoordinator.RunNowAsync();
-            var hadPendingStartupAction = Program.PendingStartupAction != StartupAction.None;
-            await ExecutePendingStartupActionAsync();
+            var hadPendingStartupAction = startupActionOrchestrationService.HasPendingStartupAction();
+            await ApplyPendingStartupActionAsync();
 
             if (!hadPendingStartupAction)
             {
@@ -411,7 +441,7 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private async Task ApplyToSystemHostsAsync()
     {
-        if (await TryEscalateWindowsActionAsync(StartupAction.ApplyManagedHosts))
+        if (await TryRelaunchElevatedAsync(StartupAction.ApplyManagedHosts))
         {
             return;
         }
@@ -437,7 +467,7 @@ public partial class MainWindowViewModel : ViewModelBase
     [RelayCommand]
     private async Task RestoreBackupAsync()
     {
-        if (await TryEscalateWindowsActionAsync(StartupAction.RestoreBackup))
+        if (await TryRelaunchElevatedAsync(StartupAction.RestoreBackup))
         {
             return;
         }
@@ -658,7 +688,7 @@ public partial class MainWindowViewModel : ViewModelBase
 
     private async Task SaveSystemHostsDirectAsync(HostProfile profile)
     {
-        if (await TryEscalateWindowsActionAsync(StartupAction.SaveRawHosts, profile.Entries ?? string.Empty))
+        if (await TryRelaunchElevatedAsync(StartupAction.SaveRawHosts, profile.Entries ?? string.Empty))
         {
             return;
         }
@@ -1260,108 +1290,56 @@ public partial class MainWindowViewModel : ViewModelBase
         return systemHostsWorkflowService.NeedsManagedApply(Profiles, GetSystemSource());
     }
 
-    private async Task<bool> TryEscalateWindowsActionAsync(StartupAction action, string? rawHostsContent = null)
+    private async Task<bool> TryRelaunchElevatedAsync(StartupAction action, string? rawHostsContent = null)
     {
-        if (!systemHostsWorkflowService.CanRequestElevation())
+        var result = await startupActionOrchestrationService.TryRelaunchElevatedAsync(action, rawHostsContent);
+        if (!string.IsNullOrWhiteSpace(result.StatusMessage))
         {
-            return false;
+            StatusMessage = result.StatusMessage;
         }
 
-        string? payloadPath = null;
-        if (action == StartupAction.SaveRawHosts)
-        {
-            payloadPath = await systemHostsWorkflowService.WritePendingRawHostsPayloadAsync(rawHostsContent ?? string.Empty);
-        }
-
-        var startInBackground = ShouldRelaunchElevatedInBackground();
-        var relaunched = systemHostsWorkflowService.TryRelaunchElevated(action, startInBackground, payloadPath);
-        if (!relaunched)
-        {
-            StatusMessage = "Administrator approval was canceled or failed.";
-            return false;
-        }
-
-        if (Application.Current?.ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
-        {
-            desktop.Shutdown();
-        }
-
-        return true;
+        return result.Relaunched;
     }
 
-    private static bool ShouldRelaunchElevatedInBackground()
+    private async Task ApplyPendingStartupActionAsync()
     {
-        if (Program.StartInBackground)
-        {
-            return true;
-        }
-
-        if (Application.Current?.ApplicationLifetime is not IClassicDesktopStyleApplicationLifetime desktop)
-        {
-            return false;
-        }
-
-        return desktop.MainWindow?.IsVisible != true;
-    }
-
-    private async Task ExecutePendingStartupActionAsync()
-    {
-        if (Program.PendingStartupAction == StartupAction.None)
+        var result = await startupActionOrchestrationService.ExecutePendingStartupActionAsync(Profiles);
+        if (result is null)
         {
             return;
         }
 
-        try
+        if (result.RefreshSystemSourceSnapshot)
         {
-            var action = Program.PendingStartupAction;
-            var result = await systemHostsWorkflowService.ExecuteStartupActionAsync(
-                action,
-                Profiles,
-                Program.StartupActionPayloadPath);
-
-            switch (action)
-            {
-                case StartupAction.ApplyManagedHosts:
-                    if (result.Performed)
-                    {
-                        await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: false);
-                        hostsStateTracker.MarkManagedApplySucceeded(Profiles);
-                        HasPendingElevatedHostsUpdate = false;
-                    }
-
-                    StatusMessage = result.StatusMessage;
-                    break;
-                case StartupAction.RestoreBackup:
-                    if (result.Performed)
-                    {
-                        await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: false);
-                        HasPendingElevatedHostsUpdate = false;
-                    }
-
-                    StatusMessage = result.StatusMessage;
-                    break;
-                case StartupAction.SaveRawHosts:
-                    if (result.Performed)
-                    {
-                        await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: false);
-                        localSourceWatcherService.MarkDirty();
-                        IsSystemHostsEditingEnabled = false;
-                        DismissSelectedSourceExternalChangeNotification();
-                        HasPendingElevatedHostsUpdate = false;
-                    }
-
-                    StatusMessage = result.StatusMessage;
-                    break;
-            }
+            await RefreshSystemHostsSourceSnapshotAsync(announceWhenChanged: false);
         }
-        catch (Exception ex)
+
+        if (result.MarkManagedApplySucceeded)
         {
-            StatusMessage = $"Startup action failed: {ex.Message}";
+            hostsStateTracker.MarkManagedApplySucceeded(Profiles);
         }
-        finally
+
+        if (result.MarkLocalSourcesDirty)
         {
-            Program.ConsumeStartupAction();
+            localSourceWatcherService.MarkDirty();
         }
+
+        if (result.DisableSystemHostsEditing)
+        {
+            IsSystemHostsEditingEnabled = false;
+        }
+
+        if (result.DismissSelectedSourceExternalChangeNotification)
+        {
+            DismissSelectedSourceExternalChangeNotification();
+        }
+
+        if (result.ClearPendingElevatedHostsUpdate)
+        {
+            HasPendingElevatedHostsUpdate = false;
+        }
+
+        StatusMessage = result.StatusMessage;
     }
 }
 
