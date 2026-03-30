@@ -79,6 +79,7 @@ public sealed class RemoteSourceSyncService : IRemoteSourceSyncService
             var entries = await azurePrivateDnsService.BuildHostsEntriesAsync(
                 profile.AzureSubscriptionId,
                 enabledZones,
+                profile.AzureStripPrivatelinkSubdomain,
                 cancellationToken);
 
             var changed = !string.Equals(profile.Entries, entries, StringComparison.Ordinal);

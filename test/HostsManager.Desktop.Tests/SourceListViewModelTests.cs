@@ -102,6 +102,7 @@ public sealed class SourceListViewModelTests
 
         Assert.Equal(SourceType.Remote, vm.SelectedProfile?.SourceType);
         Assert.Equal(RemoteTransport.AzurePrivateDns, vm.SelectedProfile?.RemoteTransport);
+        Assert.True(vm.SelectedProfile?.AzureStripPrivatelinkSubdomain);
         Assert.Equal("New remote source created (Azure Private DNS).", vm.StatusMessage);
     }
 

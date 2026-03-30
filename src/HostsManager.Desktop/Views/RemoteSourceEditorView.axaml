@@ -48,6 +48,11 @@
                         <CheckBox IsChecked="{Binding SelectedProfile.AutoRefreshFromRemote, Mode=TwoWay}" VerticalAlignment="Center" />
                     </StackPanel>
 
+                    <CheckBox IsChecked="{Binding SelectedProfile.AzureStripPrivatelinkSubdomain, Mode=TwoWay}"
+                              Content="Strip 'privatelink' from synced hostnames" />
+                    <TextBlock Opacity="0.72"
+                               Text="Example: app.privatelink.azconfig.io is saved as app.azconfig.io." />
+
                     <Button Classes="action" Command="{Binding ReadSelectedRemoteHostsCommand}">
                         <Grid ColumnDefinitions="Auto,Auto" ColumnSpacing="8">
                             <ProgressBar Grid.Column="0"

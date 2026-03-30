@@ -78,7 +78,11 @@ public class AzurePrivateDnsService : IAzurePrivateDnsService
             .ToList();
     }
 
-    public async Task<string> BuildHostsEntriesAsync(string subscriptionId, IEnumerable<AzurePrivateDnsZoneInfo> includedZones, CancellationToken cancellationToken = default)
+    public async Task<string> BuildHostsEntriesAsync(
+        string subscriptionId,
+        IEnumerable<AzurePrivateDnsZoneInfo> includedZones,
+        bool stripPrivatelinkSubdomain = false,
+        CancellationToken cancellationToken = default)
     {
         if (string.IsNullOrWhiteSpace(subscriptionId))
         {
@@ -118,7 +122,7 @@ public class AzurePrivateDnsService : IAzurePrivateDnsService
                         zoneHeaderWritten = true;
                     }
 
-                    var fqdn = ResolveRecordFqdn(record.RelativeName, zone.ZoneName);
+                    var fqdn = ResolveRecordFqdn(record.RelativeName, zone.ZoneName, stripPrivatelinkSubdomain);
                     builder.AppendLine($"{ip}\t{fqdn}");
                     totalEntries++;
                 }
@@ -190,19 +194,41 @@ public class AzurePrivateDnsService : IAzurePrivateDnsService
         return results;
     }
 
-    private static string ResolveRecordFqdn(string relativeName, string zoneName)
+    internal static string ResolveRecordFqdn(string relativeName, string zoneName, bool stripPrivatelinkSubdomain = false)
     {
+        var effectiveZoneName = stripPrivatelinkSubdomain
+            ? StripPrivatelinkSubdomain(zoneName)
+            : zoneName;
+
         if (relativeName == "@")
         {
-            return zoneName.ToLowerInvariant();
+            return effectiveZoneName.ToLowerInvariant();
         }
 
         if (relativeName.EndsWith($".{zoneName}", StringComparison.OrdinalIgnoreCase))
         {
+            var prefix = relativeName[..^(zoneName.Length + 1)];
+            return string.IsNullOrWhiteSpace(prefix)
+                ? effectiveZoneName.ToLowerInvariant()
+                : $"{prefix}.{effectiveZoneName}".ToLowerInvariant();
+        }
+
+        if (relativeName.EndsWith($".{effectiveZoneName}", StringComparison.OrdinalIgnoreCase))
+        {
             return relativeName.ToLowerInvariant();
         }
 
-        return $"{relativeName}.{zoneName}".ToLowerInvariant();
+        return $"{relativeName}.{effectiveZoneName}".ToLowerInvariant();
+    }
+
+    private static string StripPrivatelinkSubdomain(string zoneName)
+    {
+        const string PrivatelinkPrefix = "privatelink.";
+
+        return zoneName.StartsWith(PrivatelinkPrefix, StringComparison.OrdinalIgnoreCase) &&
+               zoneName.Length > PrivatelinkPrefix.Length
+            ? zoneName[PrivatelinkPrefix.Length..]
+            : zoneName;
     }
 
     private sealed record PrivateDnsZoneRef(string ZoneName, string ResourceGroup);

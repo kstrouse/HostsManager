@@ -53,6 +53,9 @@ public partial class HostProfile : ObservableObject
     private string azureExcludedZones = string.Empty;
 
     [ObservableProperty]
+    private bool azureStripPrivatelinkSubdomain = true;
+
+    [ObservableProperty]
     private bool autoRefreshFromRemote;
 
     [ObservableProperty]
