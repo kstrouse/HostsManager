@@ -193,6 +193,7 @@ public sealed class RemoteSourceSyncServiceTests
             RemoteTransport = RemoteTransport.AzurePrivateDns,
             AzureSubscriptionId = "sub-azure",
             AzureExcludedZones = "skip.internal|rg-b",
+            AzureStripPrivatelinkSubdomain = true,
             Entries = "old"
         };
 
@@ -203,6 +204,7 @@ public sealed class RemoteSourceSyncServiceTests
         Assert.Equal("sub-azure", azure.LastBuiltHostsSubscriptionId);
         Assert.Single(azure.LastBuiltHostsZones);
         Assert.Equal("include.internal", azure.LastBuiltHostsZones[0].ZoneName);
+        Assert.True(azure.LastStripPrivatelinkSubdomain);
         Assert.Equal("10.10.0.5 include.internal\n", profile.Entries.Replace("\r\n", "\n"));
         Assert.NotNull(profile.LastSyncedAtUtc);
     }
@@ -227,6 +229,7 @@ public sealed class RemoteSourceSyncServiceTests
         public string? LastListedZonesSubscriptionId { get; private set; }
         public string? LastBuiltHostsSubscriptionId { get; private set; }
         public IReadOnlyList<AzurePrivateDnsZoneInfo> LastBuiltHostsZones { get; private set; } = [];
+        public bool LastStripPrivatelinkSubdomain { get; private set; }
 
         public Task<IReadOnlyList<AzureSubscriptionOption>> ListSubscriptionsAsync(CancellationToken cancellationToken = default)
         {
@@ -239,10 +242,15 @@ public sealed class RemoteSourceSyncServiceTests
             return Task.FromResult(Zones);
         }
 
-        public Task<string> BuildHostsEntriesAsync(string subscriptionId, IEnumerable<AzurePrivateDnsZoneInfo> includedZones, CancellationToken cancellationToken = default)
+        public Task<string> BuildHostsEntriesAsync(
+            string subscriptionId,
+            IEnumerable<AzurePrivateDnsZoneInfo> includedZones,
+            bool stripPrivatelinkSubdomain = false,
+            CancellationToken cancellationToken = default)
         {
             LastBuiltHostsSubscriptionId = subscriptionId;
             LastBuiltHostsZones = includedZones.ToArray();
+            LastStripPrivatelinkSubdomain = stripPrivatelinkSubdomain;
             return Task.FromResult(HostsEntries);
         }
     }

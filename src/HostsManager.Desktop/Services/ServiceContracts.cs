@@ -236,7 +236,11 @@ public interface IAzurePrivateDnsService
 {
     Task<IReadOnlyList<AzureSubscriptionOption>> ListSubscriptionsAsync(CancellationToken cancellationToken = default);
     Task<IReadOnlyList<AzurePrivateDnsZoneInfo>> ListZonesAsync(string subscriptionId, CancellationToken cancellationToken = default);
-    Task<string> BuildHostsEntriesAsync(string subscriptionId, IEnumerable<AzurePrivateDnsZoneInfo> includedZones, CancellationToken cancellationToken = default);
+    Task<string> BuildHostsEntriesAsync(
+        string subscriptionId,
+        IEnumerable<AzurePrivateDnsZoneInfo> includedZones,
+        bool stripPrivatelinkSubdomain = false,
+        CancellationToken cancellationToken = default);
 }
 
 public interface IUiTimer

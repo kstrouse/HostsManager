@@ -87,6 +87,7 @@ internal sealed class FakeAzurePrivateDnsService : IAzurePrivateDnsService
     public IReadOnlyList<AzurePrivateDnsZoneInfo> Zones { get; set; } = [];
     public string HostsEntries { get; set; } = string.Empty;
     public int ListZonesCallCount { get; private set; }
+    public bool? LastStripPrivatelinkSubdomain { get; private set; }
 
     public Task<IReadOnlyList<AzureSubscriptionOption>> ListSubscriptionsAsync(CancellationToken cancellationToken = default)
     {
@@ -99,8 +100,13 @@ internal sealed class FakeAzurePrivateDnsService : IAzurePrivateDnsService
         return Task.FromResult(Zones);
     }
 
-    public Task<string> BuildHostsEntriesAsync(string subscriptionId, IEnumerable<AzurePrivateDnsZoneInfo> includedZones, CancellationToken cancellationToken = default)
+    public Task<string> BuildHostsEntriesAsync(
+        string subscriptionId,
+        IEnumerable<AzurePrivateDnsZoneInfo> includedZones,
+        bool stripPrivatelinkSubdomain = false,
+        CancellationToken cancellationToken = default)
     {
+        LastStripPrivatelinkSubdomain = stripPrivatelinkSubdomain;
         return Task.FromResult(HostsEntries);
     }
 }

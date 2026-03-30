@@ -52,6 +52,7 @@ public sealed class MainWindowViewModelTests
         Assert.Equal(SourceType.Remote, profile.SourceType);
         Assert.Equal(RemoteTransport.Http, profile.RemoteTransport);
         Assert.Equal("15", profile.RefreshIntervalMinutes);
+        Assert.True(profile.AzureStripPrivatelinkSubdomain);
         Assert.Equal("New remote source created (HTTP/HTTPS).", vm.StatusMessage);
     }
 
