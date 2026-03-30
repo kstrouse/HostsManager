@@ -1,6 +1,6 @@
 #define AppName "Hosts Manager"
 #ifndef AppVersion
-  #define AppVersion "0.1.0"
+  #define AppVersion "0.1.1"
 #endif
 #ifndef PublishDir
   #error PublishDir must be supplied on the ISCC command line.

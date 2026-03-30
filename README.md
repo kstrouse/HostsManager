@@ -81,13 +81,13 @@ Default outputs:
 Build the Windows installer:
 
 ```powershell
-.\Build-WindowsInstaller.ps1 -Version 0.1.0
+.\Build-WindowsInstaller.ps1 -Version 0.1.1
 ```
 
 Default outputs:
 
 - publish folder: `artifacts/publish/win-x64`
-- installer: `artifacts/installer/HostsManager-0.1.0-Setup.exe`
+- installer: `artifacts/installer/HostsManager-0.1.1-Setup.exe`
 
 If Inno Setup is not installed at `C:\Program Files (x86)\Inno Setup 6\ISCC.exe`, the script still prepares the publish output and stops before the installer compile step.
 
@@ -114,7 +114,7 @@ Azure Private DNS support is intended for turning selected private DNS zones int
 
 ## Notes Before First Public Release
 
-- The app is currently versioned as `0.1.0` and should be treated as an early public release.
+- The app is currently versioned as `0.1.1` and should be treated as an early public release.
 - Windows is the main release target right now.
 - macOS and Linux support should be presented as experimental unless you validate those paths yourself.
 
